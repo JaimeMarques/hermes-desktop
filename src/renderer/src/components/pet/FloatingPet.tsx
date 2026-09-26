@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PetSprite } from "./PetSprite";
 import { derivePetState, type PetActivity } from "./petState";
 import {
@@ -260,20 +260,21 @@ export default function FloatingPet({
         setActivity((old) => ({ ...old, awaitingInput: true }));
       if (
         detail.type === "clarify.expire" ||
-        detail.type === "message.complete"
+        detail.type === "message.complete" ||
+        detail.type === "turn.failed"
       ) {
-        if (detail.type === "message.complete")
-          window.clearTimeout(flashTimer.current);
+        const terminal =
+          detail.type === "message.complete" || detail.type === "turn.failed";
+        const failed = detail.type === "turn.failed" || Boolean(detail.failed);
+        if (terminal) window.clearTimeout(flashTimer.current);
         setActivity((old) => ({
           ...old,
           awaitingInput: false,
           toolRunning: false,
           reasoning: false,
-          ...(detail.type === "message.complete"
-            ? { error: Boolean(detail.failed), justCompleted: !detail.failed }
-            : {}),
+          ...(terminal ? { error: failed, justCompleted: !failed } : {}),
         }));
-        if (detail.failed)
+        if (failed)
           flashTimer.current = window.setTimeout(
             () =>
               setActivity((old) => ({
@@ -288,6 +289,39 @@ export default function FloatingPet({
     window.addEventListener("hermes-pet-activity", onActivity);
     return () => window.removeEventListener("hermes-pet-activity", onActivity);
   }, [connectionId, profile, runId]);
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    const container = stage?.parentElement;
+    if (!stage || !container) return;
+    const clamp = (): void => {
+      setPosition((previous) => {
+        if (!previous) return previous;
+        const next = {
+          x: Math.max(
+            0,
+            Math.min(previous.x, container.clientWidth - stage.offsetWidth),
+          ),
+          y: Math.max(
+            0,
+            Math.min(previous.y, container.clientHeight - stage.offsetHeight),
+          ),
+        };
+        if (next.x === previous.x && next.y === previous.y) return previous;
+        localStorage.setItem(POSITION_KEY, JSON.stringify(next));
+        return next;
+      });
+    };
+    clamp();
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(clamp);
+    observer?.observe(container);
+    window.addEventListener("resize", clamp);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", clamp);
+    };
+  }, [info.enabled, info.scale, info.spritesheetBase64]);
 
   if (!info.enabled || !info.spritesheetBase64) return null;
 

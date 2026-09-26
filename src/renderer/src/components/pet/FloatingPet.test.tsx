@@ -24,9 +24,83 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.useRealTimers();
+  localStorage.removeItem("hermes.one.pet.position.v1");
 });
 
 describe("FloatingPet", () => {
+  it("clamps a saved drag position into the current content area", async () => {
+    localStorage.setItem(
+      "hermes.one.pet.position.v1",
+      JSON.stringify({ x: 1000, y: 1000 }),
+    );
+    open.mockResolvedValue(client);
+    petRequest.mockResolvedValue({
+      enabled: true,
+      slug: "cat",
+      spritesheetRevision: "1",
+    });
+    refresh.mockResolvedValue({
+      enabled: true,
+      slug: "cat",
+      spritesheetBase64: "image",
+      spritesheetRevision: "1",
+    });
+    const view = render(
+      <div>
+        <FloatingPet connectionId="machine-a" profile="default" busy={false} />
+      </div>,
+    );
+    expect(await screen.findByText("cat: idle")).toBeInTheDocument();
+    expect(view.container.querySelector(".pet-floating")).toHaveStyle({
+      left: "0px",
+      top: "0px",
+    });
+  });
+  it("shows failure rather than a success wave when a turn ends without message.complete", async () => {
+    open.mockResolvedValue(client);
+    petRequest.mockResolvedValue({
+      enabled: true,
+      slug: "cat",
+      spritesheetRevision: "1",
+    });
+    refresh.mockResolvedValue({
+      enabled: true,
+      slug: "cat",
+      spritesheetBase64: "image",
+      spritesheetRevision: "1",
+    });
+    const view = render(
+      <FloatingPet
+        connectionId="machine-a"
+        profile="default"
+        runId="run-1"
+        busy
+      />,
+    );
+    expect(await screen.findByText("cat: run")).toBeInTheDocument();
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent("hermes-pet-activity", {
+          detail: {
+            connectionId: "machine-a",
+            profile: "default",
+            runId: "run-1",
+            type: "turn.failed",
+            failed: true,
+          },
+        }),
+      ),
+    );
+    view.rerender(
+      <FloatingPet
+        connectionId="machine-a"
+        profile="default"
+        runId="run-1"
+        busy={false}
+      />,
+    );
+    expect(screen.getByText("cat: failed")).toBeInTheDocument();
+  });
   it("shows the chosen machine/profile's pet and follows upstream changes", async () => {
     open.mockResolvedValue(client);
     refresh

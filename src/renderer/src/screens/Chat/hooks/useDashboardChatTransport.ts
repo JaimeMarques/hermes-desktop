@@ -113,6 +113,7 @@ interface UseDashboardChatTransportArgs {
   onDashboardUnavailable?: (reason: string) => void;
   /** Cosmetic activity for the visible pet; only accepted session events. */
   onPetEvent?: (event: DashboardStreamEvent) => void;
+  onPetFailure?: () => void;
 }
 
 interface UseDashboardChatTransportResult {
@@ -947,6 +948,7 @@ export function useDashboardChatTransport({
   setUsage,
   onDashboardUnavailable,
   onPetEvent,
+  onPetFailure,
 }: UseDashboardChatTransportArgs): UseDashboardChatTransportResult {
   const clientRef = useRef<DashboardGatewayClient | null>(null);
   const connectingRef = useRef<Promise<DashboardGatewayClient> | null>(null);
@@ -1853,6 +1855,7 @@ export function useDashboardChatTransport({
         }
       };
       const failActiveTurn = (message: string): true => {
+        onPetFailure?.();
         const activeTurn = activeTurnRef.current;
         if (activeTurn) activeTurn.status = "failed";
         if (pendingApprovalsRef.current.length) {
@@ -1997,6 +2000,7 @@ export function useDashboardChatTransport({
       ensureSelectedModel,
       syncDashboardAttachments,
       messagesRef,
+      onPetFailure,
       setIsLoading,
       setMessages,
       setToolProgress,

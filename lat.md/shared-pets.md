@@ -16,6 +16,6 @@ Selecting, disabling, scaling, renaming, exporting and removing call the upstrea
 
 [[src/renderer/src/components/pet/FloatingPet.tsx#FloatingPet]] polls pet metadata and refreshes the revisioned sprite when another Hermes surface changes selection.
 
-The `pet.changed` event is an immediate hint; focus/poll reconnects a dropped socket, and an in-flight metadata read rechecks after a newer change. [[src/renderer/src/components/pet/PetSprite.tsx#PetSprite]] renders both legacy and current state rows using the gateway's geometry and real frame counts. The displayed run owns activity; other sessions cannot take over its pose. Only drag position is local to this device; profile selection and size remain in shared Hermes config.
+The `pet.changed` event is an immediate hint; focus/poll reconnects a dropped socket, and an in-flight metadata read rechecks after a newer change. [[src/renderer/src/components/pet/PetSprite.tsx#PetSprite]] renders both legacy and current state rows using the gateway's geometry and real frame counts. The displayed run owns activity; legacy and dashboard failures use the failed pose rather than a success wave. Saved drag positions are clamped when the window shrinks. Only drag position is local to this device; profile selection and size remain in shared Hermes config.
 
 The mascot is inside the Hermes One window. Official-desktop pop-out, roaming, and pet-generation UI are separate presentation features, not alternate storage formats.

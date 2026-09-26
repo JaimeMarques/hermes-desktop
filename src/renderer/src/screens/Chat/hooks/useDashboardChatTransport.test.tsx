@@ -90,6 +90,7 @@ function Harness({
   initialConnectionMode = "local",
   onDashboardUnavailable,
   onPetEvent,
+  onPetFailure,
   setUsage = vi.fn() as SetUsageMock,
 }: {
   api: HarnessApi;
@@ -99,6 +100,7 @@ function Harness({
   initialConnectionMode?: "local" | "remote" | "ssh";
   onDashboardUnavailable?: (reason: string) => void;
   onPetEvent?: (event: DashboardRpcEvent) => void;
+  onPetFailure?: () => void;
   setUsage?: SetUsageMock;
 }): null {
   // Same write-through transcript state Chat.tsx uses — the transport's
@@ -138,6 +140,7 @@ function Harness({
     setUsage,
     onDashboardUnavailable,
     onPetEvent,
+    onPetFailure,
   });
 
   useEffect(() => {
@@ -597,6 +600,7 @@ describe("useDashboardChatTransport recovery", () => {
   it("surfaces OAuth login requirements without legacy fallback", async () => {
     // @lat: [[remote-dashboard-oauth#Test specifications#OAuth no-fallback]]
     const onUnavailable = vi.fn();
+    const onPetFailure = vi.fn();
     Object.defineProperty(window, "hermesAPI", {
       configurable: true,
       value: {
@@ -617,6 +621,7 @@ describe("useDashboardChatTransport recovery", () => {
         initialConnectionMode="remote"
         fallbackOnUnavailable
         onDashboardUnavailable={onUnavailable}
+        onPetFailure={onPetFailure}
       />,
     );
 
@@ -627,6 +632,7 @@ describe("useDashboardChatTransport recovery", () => {
 
     expect(handled).toBe(true);
     expect(onUnavailable).not.toHaveBeenCalled();
+    expect(onPetFailure).toHaveBeenCalledOnce();
   });
 
   afterEach(() => {

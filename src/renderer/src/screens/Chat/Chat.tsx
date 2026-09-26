@@ -492,6 +492,20 @@ function Chat({
 
   const visibleSessionScopeId = messages.length === 0 ? null : hermesSessionId;
 
+  const notifyPetFailure = useCallback(() => {
+    window.dispatchEvent(
+      new CustomEvent("hermes-pet-activity", {
+        detail: {
+          connectionId,
+          profile: profile ?? "default",
+          runId,
+          type: "turn.failed",
+          failed: true,
+        },
+      }),
+    );
+  }, [connectionId, profile, runId]);
+
   useChatIPC({
     runId,
     connectionId,
@@ -503,6 +517,7 @@ function Chat({
     setIsLoading,
     setUsage,
     activeTurnRef,
+    onPetFailure: notifyPetFailure,
   });
 
   // No parent-driven reset effects: each run is its own <Chat key={runId}>
@@ -703,6 +718,7 @@ function Chat({
     setUsage,
     onDashboardUnavailable: handleDashboardUnavailable,
     onPetEvent: handlePetEvent,
+    onPetFailure: notifyPetFailure,
   });
 
   const respondDashboardClarify = dashboardTransport.respondClarify;

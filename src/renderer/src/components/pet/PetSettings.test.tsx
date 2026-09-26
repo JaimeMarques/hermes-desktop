@@ -302,4 +302,38 @@ describe("PetSettings", () => {
     await act(async () => rejectMetadata(new Error("metadata timed out")));
     expect(screen.getByRole("alert")).toHaveTextContent("metadata timed out");
   });
+
+  it("keeps concurrent thumbnail results when another thumbnail completes first", async () => {
+    const pending = new Map<string, (value: unknown) => void>();
+    request.mockImplementation((method: string, params: { slug?: string }) => {
+      if (method === "pet.gallery")
+        return Promise.resolve({
+          enabled: false,
+          active: "",
+          pets: [
+            { slug: "cat", displayName: "Cat", installed: true },
+            { slug: "dog", displayName: "Dog", installed: true },
+          ],
+        });
+      if (method === "pet.info.meta")
+        return Promise.resolve({ enabled: false });
+      if (method === "pet.thumb")
+        return new Promise((resolve) => {
+          pending.set(params.slug!, resolve);
+        });
+      return Promise.resolve({});
+    });
+    render(<PetSettings profile="phoenix" connectionId="machine-b" />);
+    await waitFor(() => expect(pending.size).toBe(2));
+    await act(async () =>
+      pending.get("cat")?.({ dataUri: "data:image/png;base64,cat" }),
+    );
+    await act(async () =>
+      pending.get("dog")?.({ dataUri: "data:image/png;base64,dog" }),
+    );
+    expect(document.querySelectorAll(".pet-settings-card img")).toHaveLength(2);
+    expect(
+      request.mock.calls.filter(([method]) => method === "pet.thumb"),
+    ).toHaveLength(2);
+  });
 });

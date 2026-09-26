@@ -36,6 +36,10 @@ export default function PetSettings({
   const [scale, setScale] = useState(0.33);
   const galleryRevision = useRef(0);
   const scopeGeneration = useRef(0);
+  const thumbScope = useRef<{
+    attempted: Set<string>;
+    disposed: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (!connectionId) return;
@@ -159,22 +163,30 @@ export default function PetSettings({
 
   useEffect(() => {
     if (!client) return;
-    let disposed = false;
+    const scope = { attempted: new Set<string>(), disposed: false };
+    thumbScope.current = scope;
+    return () => {
+      scope.disposed = true;
+    };
+  }, [client, profile]);
+
+  useEffect(() => {
+    if (!client) return;
+    const scope = thumbScope.current;
+    if (!scope || scope.disposed) return;
     for (const pet of visible) {
-      if (thumbs[pet.slug]) continue;
+      if (thumbs[pet.slug] || scope.attempted.has(pet.slug)) continue;
+      scope.attempted.add(pet.slug);
       void petRequest<{ dataUri?: string }>(client, profile, "pet.thumb", {
         slug: pet.slug,
         ...(pet.spritesheetUrl ? { url: pet.spritesheetUrl } : {}),
       })
         .then((thumb) => {
-          if (!disposed && thumb.dataUri)
+          if (!scope.disposed && thumb.dataUri)
             setThumbs((old) => ({ ...old, [pet.slug]: thumb.dataUri! }));
         })
         .catch(() => undefined);
     }
-    return () => {
-      disposed = true;
-    };
   }, [client, profile, visible, thumbs]);
 
   const reload = async (
