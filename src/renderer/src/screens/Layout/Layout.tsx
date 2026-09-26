@@ -51,6 +51,7 @@ import {
 } from "../../assets/icons";
 import type { LucideIcon } from "lucide-react";
 import { useI18n } from "../../components/useI18n";
+import FloatingPet from "../../components/pet/FloatingPet";
 
 type View =
   | "chat"
@@ -130,8 +131,8 @@ function Layout({
     height: 0,
   });
 
-  const currentSessionId =
-    runs.find((r) => r.runId === activeRunId)?.sessionId ?? null;
+  const activeRun = runs.find((r) => r.runId === activeRunId);
+  const currentSessionId = activeRun?.sessionId ?? null;
 
   const loadingSessionIds = useMemo(
     () => deriveLoadingSessionIds(runs),
@@ -305,12 +306,15 @@ function Layout({
     const handleKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
-        openSettings(undefined, { profile: activeProfile });
+        openSettings(undefined, {
+          profile: activeProfile,
+          connectionId: activeRun?.connectionId ?? connectionId,
+        });
       }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [openSettings, activeProfile]);
+  }, [openSettings, activeProfile, activeRun?.connectionId, connectionId]);
 
   const focusDiscover = useCallback(
     (kind: "skills" | "mcps") => {
@@ -833,7 +837,10 @@ function Layout({
               <button
                 className="sidebar-footer-action"
                 onClick={() =>
-                  openSettings(undefined, { profile: activeProfile })
+                  openSettings(undefined, {
+                    profile: activeProfile,
+                    connectionId: activeRun?.connectionId ?? connectionId,
+                  })
                 }
                 aria-label={t("navigation.settings")}
                 data-tooltip={t("navigation.settings")}
@@ -890,7 +897,10 @@ function Layout({
                   profile={run.profile}
                   onNewChat={handleNewChat}
                   onOpenDiagnose={(section?: string) =>
-                    openSettings(section, { profile: run.profile })
+                    openSettings(section, {
+                      profile: run.profile,
+                      connectionId: run.connectionId,
+                    })
                   }
                   onLoadingChange={handleRunLoading}
                   onSessionIdChange={handleRunSessionId}
@@ -1032,6 +1042,21 @@ function Layout({
                 <Gateway profile={activeProfile} />
               )}
             </div>
+          )}
+          {activeRun && (
+            <FloatingPet
+              key={`${activeRun.connectionId}:${activeRun.profile}`}
+              connectionId={activeRun.connectionId}
+              profile={activeRun.profile}
+              runId={activeRun.runId}
+              busy={activeRun.loading}
+              onOpenSettings={() =>
+                openSettings("pets", {
+                  profile: activeRun.profile,
+                  connectionId: activeRun.connectionId,
+                })
+              }
+            />
           )}
         </main>
       </div>

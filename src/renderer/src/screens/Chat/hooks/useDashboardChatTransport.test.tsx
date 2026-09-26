@@ -89,6 +89,7 @@ function Harness({
   fallbackOnUnavailable = false,
   initialConnectionMode = "local",
   onDashboardUnavailable,
+  onPetEvent,
   setUsage = vi.fn() as SetUsageMock,
 }: {
   api: HarnessApi;
@@ -97,6 +98,7 @@ function Harness({
   fallbackOnUnavailable?: boolean;
   initialConnectionMode?: "local" | "remote" | "ssh";
   onDashboardUnavailable?: (reason: string) => void;
+  onPetEvent?: (event: DashboardRpcEvent) => void;
   setUsage?: SetUsageMock;
 }): null {
   // Same write-through transcript state Chat.tsx uses — the transport's
@@ -135,6 +137,7 @@ function Harness({
     setToolProgress: vi.fn(),
     setUsage,
     onDashboardUnavailable,
+    onPetEvent,
   });
 
   useEffect(() => {
@@ -1548,6 +1551,38 @@ describe("useDashboardChatTransport delta coalescing", () => {
       | { content?: string }
       | undefined;
     expect(lastAfter?.content).toBe("partial and done");
+  });
+
+  it("relays only accepted activity events to the pet, not another session's events", async () => {
+    dashboardMock.request.mockImplementation(async (method) => {
+      if (method === "session.create")
+        return { session_id: "live-1", stored_session_id: "stored-1" };
+      if (method === "model.options")
+        return { model: "bad-model", provider: "bad-provider", providers: [] };
+      return {};
+    });
+    const onPetEvent = vi.fn();
+    const api: HarnessApi = {};
+    render(<Harness api={api} onPetEvent={onPetEvent} />);
+    await act(async () => {
+      await api.send?.("hello");
+    });
+    await act(async () => {
+      dashboardMock.onEvent?.({
+        type: "tool.start",
+        session_id: "other",
+        payload: { name: "terminal" },
+      });
+      dashboardMock.onEvent?.({
+        type: "tool.start",
+        session_id: "live-1",
+        payload: { name: "terminal" },
+      });
+    });
+    expect(onPetEvent).toHaveBeenCalledTimes(1);
+    expect(onPetEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "tool.start", session_id: "live-1" }),
+    );
   });
 
   it("keeps pending deltas when a functional writer lands mid-frame", async () => {

@@ -6,6 +6,7 @@ import {
   Info,
   Languages,
   Palette,
+  PawPrint,
   Plug,
   ShieldCheck,
   Users,
@@ -24,9 +25,11 @@ import AboutPane from "./AboutPane";
 import CommunityPane from "./CommunityPane";
 import LogsPane from "./LogsPane";
 import NotificationsPane from "./NotificationsPane";
+import PetSettings from "../pet/PetSettings";
 
 export type SettingsSection =
   | "appearance"
+  | "pets"
   | "language"
   | "notifications"
   | "privacy"
@@ -50,6 +53,12 @@ const SETTINGS_NAV: ReadonlyArray<{
     id: "appearance",
     labelKey: "settings.nav.appearance",
     Icon: Palette,
+  },
+  {
+    group: "general",
+    id: "pets",
+    labelKey: "settings.nav.pets",
+    Icon: PawPrint,
   },
   {
     group: "general",
@@ -114,6 +123,7 @@ function resolveSection(name?: string): SettingsSection {
 interface SettingsModalProps {
   open: boolean;
   profile?: string;
+  connectionId?: string;
   initialSection?: string;
   onClose: () => void;
   onExited?: () => void;
@@ -127,6 +137,7 @@ interface SettingsModalProps {
 export default function SettingsModal({
   open,
   profile,
+  connectionId,
   initialSection,
   onClose,
   onExited,
@@ -202,6 +213,13 @@ export default function SettingsModal({
         <div className="settings-modal-content">
           <SettingsDataContext.Provider value={data}>
             {section === "appearance" && <AppearancePane />}
+            {section === "pets" && (
+              <PetSettings
+                key={`${connectionId ?? data.connectionId}:${profile ?? "default"}`}
+                profile={profile ?? "default"}
+                connectionId={connectionId ?? data.connectionId}
+              />
+            )}
             {section === "language" && <LanguagePane />}
             {section === "notifications" && <NotificationsPane />}
             {section === "privacy" && <PrivacyPane />}

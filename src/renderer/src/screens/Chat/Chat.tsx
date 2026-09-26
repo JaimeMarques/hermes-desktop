@@ -24,6 +24,7 @@ import { useLocalCommands } from "./hooks/useLocalCommands";
 import {
   dashboardChatEnabledForConnection,
   useDashboardChatTransport,
+  completionFailed,
 } from "./hooks/useDashboardChatTransport";
 import { useI18n } from "../../components/useI18n";
 import { useChatPreferences } from "../../components/ChatPreferencesProvider";
@@ -54,6 +55,7 @@ import type {
   AgentSlashCommand,
 } from "./slash/types";
 import { shouldPlayCompletionSound } from "./chatNotifications";
+import type { DashboardRpcEvent } from "./dashboardGatewayClient";
 
 interface QueuedMessage {
   text: string;
@@ -660,6 +662,26 @@ function Chat({
     });
   }, [t]);
 
+  const handlePetEvent = useCallback(
+    (event: DashboardRpcEvent) => {
+      window.dispatchEvent(
+        new CustomEvent("hermes-pet-activity", {
+          detail: {
+            connectionId,
+            profile: profile ?? "default",
+            runId,
+            type: event.type,
+            payload: event.payload,
+            failed:
+              event.type === "message.complete" &&
+              completionFailed(event.payload),
+          },
+        }),
+      );
+    },
+    [connectionId, profile, runId],
+  );
+
   const dashboardTransport = useDashboardChatTransport({
     activeTurnRef,
     connectionId,
@@ -680,6 +702,7 @@ function Chat({
     setToolProgress,
     setUsage,
     onDashboardUnavailable: handleDashboardUnavailable,
+    onPetEvent: handlePetEvent,
   });
 
   const respondDashboardClarify = dashboardTransport.respondClarify;

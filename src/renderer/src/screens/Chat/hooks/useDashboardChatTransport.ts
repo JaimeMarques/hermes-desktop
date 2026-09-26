@@ -111,6 +111,8 @@ interface UseDashboardChatTransportArgs {
    *  unavailable on a remote/SSH connection and the renderer is falling back to
    *  the legacy HTTP transport. Lets the UI surface a one-time notice. */
   onDashboardUnavailable?: (reason: string) => void;
+  /** Cosmetic activity for the visible pet; only accepted session events. */
+  onPetEvent?: (event: DashboardStreamEvent) => void;
 }
 
 interface UseDashboardChatTransportResult {
@@ -944,6 +946,7 @@ export function useDashboardChatTransport({
   setToolProgress,
   setUsage,
   onDashboardUnavailable,
+  onPetEvent,
 }: UseDashboardChatTransportArgs): UseDashboardChatTransportResult {
   const clientRef = useRef<DashboardGatewayClient | null>(null);
   const connectingRef = useRef<Promise<DashboardGatewayClient> | null>(null);
@@ -1139,6 +1142,21 @@ export function useDashboardChatTransport({
         return;
       }
       logDashboardEvent(event, "accepted", runtimeSessionId);
+      if (
+        onPetEvent &&
+        [
+          "tool.start",
+          "tool.generating",
+          "tool.complete",
+          "thinking.delta",
+          "reasoning.delta",
+          "approval.request",
+          "clarify.request",
+          "clarify.expire",
+          "message.complete",
+        ].includes(event.type)
+      )
+        onPetEvent(event);
 
       if (event.type === "session.info") {
         const recordRuntimeInfo = window.hermesAPI.recordAgentRuntimeInfo;
@@ -1368,6 +1386,7 @@ export function useDashboardChatTransport({
       connectionMode,
       flushDeltasNow,
       messagesRef,
+      onPetEvent,
       scheduleDeltaFlush,
       profile,
       setIsLoading,
