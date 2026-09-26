@@ -37,7 +37,7 @@ export default function PetSettings({
   const galleryRevision = useRef(0);
   const scopeGeneration = useRef(0);
   const thumbScope = useRef<{
-    attempted: Set<string>;
+    attempted: Map<string, number>;
     disposed: boolean;
   } | null>(null);
 
@@ -163,7 +163,7 @@ export default function PetSettings({
 
   useEffect(() => {
     if (!client) return;
-    const scope = { attempted: new Set<string>(), disposed: false };
+    const scope = { attempted: new Map<string, number>(), disposed: false };
     thumbScope.current = scope;
     return () => {
       scope.disposed = true;
@@ -175,17 +175,25 @@ export default function PetSettings({
     const scope = thumbScope.current;
     if (!scope || scope.disposed) return;
     for (const pet of visible) {
-      if (thumbs[pet.slug] || scope.attempted.has(pet.slug)) continue;
-      scope.attempted.add(pet.slug);
+      const retryAt = scope.attempted.get(pet.slug);
+      if (thumbs[pet.slug] || (retryAt !== undefined && Date.now() < retryAt))
+        continue;
+      // Infinity marks a request in flight or a successful result.
+      scope.attempted.set(pet.slug, Infinity);
       void petRequest<{ dataUri?: string }>(client, profile, "pet.thumb", {
         slug: pet.slug,
         ...(pet.spritesheetUrl ? { url: pet.spritesheetUrl } : {}),
       })
         .then((thumb) => {
-          if (!scope.disposed && thumb.dataUri)
+          if (scope.disposed) return;
+          if (thumb.dataUri)
             setThumbs((old) => ({ ...old, [pet.slug]: thumb.dataUri! }));
+          else scope.attempted.set(pet.slug, Date.now() + 10000);
         })
-        .catch(() => undefined);
+        .catch(() => {
+          if (!scope.disposed)
+            scope.attempted.set(pet.slug, Date.now() + 10000);
+        });
     }
   }, [client, profile, visible, thumbs]);
 

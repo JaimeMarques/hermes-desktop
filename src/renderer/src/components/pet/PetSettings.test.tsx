@@ -33,6 +33,7 @@ beforeEach(() =>
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.resetAllMocks();
 });
 
@@ -335,5 +336,39 @@ describe("PetSettings", () => {
     expect(
       request.mock.calls.filter(([method]) => method === "pet.thumb"),
     ).toHaveLength(2);
+  });
+  it("retries a failed thumbnail on a later gallery refresh, not immediately", async () => {
+    let onEvent: (event: { type: string }) => void = () => undefined;
+    let now = 1000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    openGateway.mockImplementation(async (_profile, _connection, handler) => {
+      onEvent = handler;
+      return { request, close, connected: true };
+    });
+    let thumbCalls = 0;
+    request.mockImplementation((method: string) => {
+      if (method === "pet.gallery")
+        return Promise.resolve({
+          enabled: false,
+          active: "",
+          pets: [{ slug: "cat", displayName: "Cat", installed: true }],
+        });
+      if (method === "pet.info.meta")
+        return Promise.resolve({ enabled: false });
+      if (method === "pet.thumb") {
+        thumbCalls++;
+        return thumbCalls === 1
+          ? Promise.reject(new Error("offline"))
+          : Promise.resolve({ dataUri: "data:image/png;base64,cat" });
+      }
+      return Promise.resolve({});
+    });
+    render(<PetSettings profile="phoenix" connectionId="machine-b" />);
+    await waitFor(() => expect(thumbCalls).toBe(1));
+    await act(async () => undefined);
+    now = 13000;
+    act(() => onEvent({ type: "pet.changed" }));
+    await waitFor(() => expect(thumbCalls).toBe(2));
+    expect(document.querySelectorAll(".pet-settings-card img")).toHaveLength(1);
   });
 });

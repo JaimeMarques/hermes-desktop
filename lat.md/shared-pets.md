@@ -10,7 +10,7 @@ Every request carries an explicit profile and uses the selected machine's authen
 
 Settings → Pets lists installed pets immediately, merges the online gallery when reachable, and asks the backend for thumbnails.
 
-Selecting, disabling, scaling, renaming, exporting and removing call the upstream `pet.*` RPCs; changes are visible to CLI/TUI/official desktop in the same profile. [[src/renderer/src/components/pet/PetSettings.tsx#PetSettings]] owns this UI, refreshes while open, and reconnects after a dropped gateway. Generated pets use their existing manifests rather than a new Hermes One format.
+Selecting, disabling, scaling, renaming, exporting and removing call the upstream `pet.*` RPCs; changes are visible to CLI/TUI/official desktop in the same profile. [[src/renderer/src/components/pet/PetSettings.tsx#PetSettings]] owns this UI, refreshes while open, retries failed thumbnails on later refreshes, and reconnects after a dropped gateway. Generated pets use their existing manifests rather than a new Hermes One format.
 
 ## Live mascot
 
