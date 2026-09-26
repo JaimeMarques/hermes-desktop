@@ -10,7 +10,7 @@ import {
   validateNormalizedSessionTitle,
 } from "../shared/session-title";
 import { getAppLocale } from "./locale";
-import { getDbConnection, sessionVisibilityPredicate } from "./db";
+import { getDbConnection, conversationListPredicate } from "./db";
 import { getSessionContextFolders } from "./session-context-folder-store";
 
 // Re-export for callers/docs that historically imported the cap from here.
@@ -134,12 +134,13 @@ export function syncSessionCache(profile?: unknown): CachedSession[] {
 
   try {
     // Read the complete visible set so old sessions can disappear on archive
-    // and reappear on unarchive. Reuse cached titles to avoid rereading messages.
+    // (or on a rule change, like child sessions leaving the list) and reappear
+    // when they qualify again. Reuse cached titles to avoid rereading messages.
     const rows = db
       .prepare(
         `SELECT s.id, s.started_at, s.source, s.message_count, s.model, s.title
          FROM sessions s
-         WHERE ${sessionVisibilityPredicate(db)}
+         WHERE ${conversationListPredicate(db)}
          ORDER BY s.started_at DESC`,
       )
       .all() as Array<{

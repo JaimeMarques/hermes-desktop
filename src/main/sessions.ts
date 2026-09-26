@@ -3,7 +3,7 @@ import type { Attachment } from "../shared/attachments";
 import { isImageMime } from "../shared/attachments";
 import { clearStagedAttachments } from "./attachment-staging";
 import { removeSessionFromCache } from "./session-cache";
-import { getDbConnection, sessionVisibilityPredicate } from "./db";
+import { getDbConnection, conversationListPredicate } from "./db";
 import {
   attachmentFromLocalVisionImagePath,
   deletePromptImageAttachmentsForSession,
@@ -260,15 +260,16 @@ function getDb(readonly = true, profile?: unknown): Database.Database | null {
   return getDbConnection(readonly, profile);
 }
 
-export function listSessions(
-  limit = 30,
-  offset = 0,
-  profile?: unknown,
+/**
+ * Rows for a human-facing conversation list, newest first. Exported so the
+ * listing rule can be tested against a real database rather than mocked.
+ */
+export function listConversationRows(
+  db: Database.Database,
+  limit: number,
+  offset: number,
 ): SessionSummary[] {
-  const db = getDb(true, profile);
-  if (!db) return [];
-
-  // Simple query without correlated subquery — titles come from session cache
+  // Titles come from the session cache, not a correlated subquery.
   const rows = db
     .prepare(
       `SELECT
@@ -280,7 +281,7 @@ export function listSessions(
         s.model,
         s.title
       FROM sessions s
-      WHERE ${sessionVisibilityPredicate(db)}
+      WHERE ${conversationListPredicate(db)}
       ORDER BY s.started_at DESC
       LIMIT ? OFFSET ?`,
     )
@@ -304,6 +305,17 @@ export function listSessions(
     title: r.title,
     preview: "",
   }));
+}
+
+export function listSessions(
+  limit = 30,
+  offset = 0,
+  profile?: unknown,
+): SessionSummary[] {
+  const db = getDb(true, profile);
+  if (!db) return [];
+
+  return listConversationRows(db, limit, offset);
 }
 
 export function searchSessions(

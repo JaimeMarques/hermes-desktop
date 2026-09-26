@@ -28,6 +28,14 @@ Local lists follow the Agent's native archive flag. Archiving hides a conversati
 
 [[src/main/db.ts#sessionVisibilityPredicate]] detects whether the selected profile's database has an `archived` column. [[src/main/sessions.ts#listSessions]] filters `archived = 0` before pagination, while legacy databases without that column remain readable.
 
+## Conversations, not child sessions
+
+The list shows conversations. A delegated child's session belongs to the turn that spawned it, and internal sources are not chats at all, so neither is a sidebar row.
+
+[[src/main/db.ts#conversationListPredicate]] is the one rule both the visibility filter and the conversation filter come from: it adds `parent_session_id IS NULL` (set by the agent for subagent runs and compression continuations, whenever the column exists) and drops the internal sources the gateway's own listing drops — the same three as hermes-agent's `hermes_state_sessions.INTERNAL_LISTING_SOURCES` — so this app's sidebar agrees with every other Hermes surface about which sessions exist. [[src/main/sessions.ts#listConversationRows]] applies it before pagination.
+
+Live children stay visible where they belong: the in-chat roster (see [[subagents]]) renders a running child inside its parent conversation, which is how the official desktop shows the same work.
+
 [[src/main/session-cache.ts#syncSessionCache]] reconciles the complete visible metadata set rather than using `started_at` as a change cursor: archive and restore do not change creation time. Cached titles are reused, and message bodies are read only to generate missing titles for newly visible rows. Successful sync replaces the cached membership, including an empty set; unavailable databases or failed reads retain the last good cache until retry. [[src/main/session-cache.ts#listCachedSessions]] remains DB-free, so an initial cached paint can be stale until sync finishes. Message history and search are unchanged.
 
 [[src/renderer/src/screens/Sessions/Sessions.tsx]] accepts an empty quiet-refresh result for the explicitly selected local connection, allowing the last archived row to disappear. Network-backed lists retain their transient-empty guard. Failed connection checks retain visible rows, and request identity prevents a delayed empty result from clearing a newer profile's list.
