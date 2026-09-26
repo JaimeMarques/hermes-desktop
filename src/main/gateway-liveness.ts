@@ -1,4 +1,4 @@
-import { readFileSync } from "fs";
+import { readFileSync, realpathSync } from "fs";
 import { join } from "path";
 
 /** Match the default home's managed gateway, not a reused PID or a named profile's missing API port. */
@@ -22,7 +22,8 @@ export function isMultiplexGatewayRunning(
     };
     if (
       state.kind !== "hermes-gateway" ||
-      state.hermes_home !== home ||
+      typeof state.hermes_home !== "string" ||
+      realpathSync(state.hermes_home) !== realpathSync(home) ||
       state.gateway_state !== "running" ||
       typeof state.pid !== "number" ||
       !Number.isSafeInteger(state.pid) ||

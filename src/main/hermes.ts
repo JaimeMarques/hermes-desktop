@@ -3771,7 +3771,8 @@ export function assertLocalGatewayKeyMutationAllowed(
   if (
     (key === "API_SERVER_KEY" ||
       key === "api_server.token" ||
-      key === "api_server.extra.key") &&
+      key === "api_server.extra.key" ||
+      key === "platforms.api_server.extra.key") &&
     isExternallyManagedMultiplexGateway(profile ?? "default")
   ) {
     throw new Error(

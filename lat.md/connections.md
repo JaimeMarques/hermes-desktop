@@ -105,6 +105,10 @@ A running default-home gateway reports Local online in Settings without `gateway
 
 Settings checks API reachability for the default Local gateway after confirming its process is live. Named profiles keep PID-based status so a read-only status probe never invokes their port allocator or rewrites config.
 
+### Default API port selection
+
+The default profile's Local API uses its explicitly configured `platforms.api_server.extra.port` when present, otherwise the historical default port; resolving it does not modify configuration.
+
 ### Externally managed gateway controls
 
 Hermes One never claims to stop a multiplex gateway owned by a service or other process; its Stop action reports that the gateway must be managed by its owner.
@@ -112,6 +116,10 @@ Hermes One never claims to stop a multiplex gateway owned by a service or other 
 ### Externally managed API keys
 
 An API key cannot be rotated in Hermes One while another process owns the live default gateway, because that process would keep using its old key until its own supervisor restarts it.
+
+### Equivalent gateway home paths
+
+An externally managed gateway's recorded home and the desktop's home can differ lexically through a symlink while naming the same directory; status and control ownership must recognize that equivalence.
 
 ### Multiplex status in profile lists
 

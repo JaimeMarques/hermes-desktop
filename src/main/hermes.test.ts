@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -223,6 +229,12 @@ describe("local gateway status", () => {
         assertLocalGatewayKeyMutationAllowed("api_server.extra.key", "default"),
       ).toThrow("managed outside Hermes One");
       expect(() =>
+        assertLocalGatewayKeyMutationAllowed(
+          "platforms.api_server.extra.key",
+          "default",
+        ),
+      ).toThrow("managed outside Hermes One");
+      expect(() =>
         assertLocalGatewayKeyMutationAllowed("model.default", "default"),
       ).not.toThrow();
     },
@@ -264,6 +276,33 @@ describe("local gateway status", () => {
 
       writeFileSync(file, "not json");
       expect(isGatewayRunning("default")).toBe(false);
+    },
+  );
+
+  // @lat: [[connections#Test specifications#Equivalent gateway home paths]]
+  it.skipIf(process.platform !== "linux")(
+    "recognizes the same gateway home through a symlink",
+    () => {
+      const alias = join(home, "alias");
+      symlinkSync(home, alias, "dir");
+      const stat = readFileSync(`/proc/${process.pid}/stat`, "utf-8");
+      const startTime = Number(
+        stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19],
+      );
+      writeFileSync(
+        join(home, "gateway_state.json"),
+        JSON.stringify({
+          kind: "hermes-gateway",
+          hermes_home: home,
+          gateway_state: "running",
+          pid: process.pid,
+          start_time: startTime,
+          served_profiles: ["default"],
+        }),
+      );
+      vi.mocked(profileHome).mockReturnValue(alias);
+      expect(isGatewayRunning("default")).toBe(true);
+      expect(isExternallyManagedMultiplexGateway("default")).toBe(true);
     },
   );
 });
