@@ -97,6 +97,26 @@ Focused checks cover independent status classification and the credential bounda
 
 Local, Remote, and SSH records report separate health and authentication outcomes, retain connection-specific capability evidence, and never return stored API keys.
 
+### Local multiplex gateway status
+
+A running default-home gateway reports Local online in Settings without `gateway.pid` only for the default profile, after validating its process fingerprint. Named profiles without a dedicated API listener stay offline.
+
+### Local API readiness
+
+Settings checks API reachability for the default Local gateway after confirming its process is live. Named profiles keep PID-based status so a read-only status probe never invokes their port allocator or rewrites config.
+
+### Externally managed gateway controls
+
+Hermes One never claims to stop a multiplex gateway owned by a service or other process; its Stop action reports that the gateway must be managed by its owner.
+
+### Externally managed API keys
+
+An API key cannot be rotated in Hermes One while another process owns the live default gateway, because that process would keep using its old key until its own supervisor restarts it.
+
+### Multiplex status in profile lists
+
+The profile list backing the status bar and agent screens recognizes the default home's live multiplexer for its default profile only; named profiles without a dedicated API listener remain offline.
+
 ### Connection-explicit dashboard routing
 
 Direct-Remote dashboard status and WebSocket lookup use the chat's saved connection ID instead of the currently selected record, while inactive SSH records cannot retarget the singleton tunnel.
