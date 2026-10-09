@@ -33,3 +33,9 @@ The gauge's numerator resolves as: exact payload counts (`context_used`, else pr
 The gauge only renders when `contextTokens` is set (see `contextUsage` in [[src/renderer/src/screens/Chat/Chat.tsx]]), so on `message.complete` the transport fills it in even when `usageFromPayload` returns null. [[src/renderer/src/screens/Chat/hooks/useDashboardChatTransport.ts#estimateContextTokens]] sums the transcript's characters — bubbles, reasoning text, tool call args, and tool results all occupied the prompt loop — and excludes the just-completed assistant reply bubble, because `contextTokens` means prompt-side occupancy and the reply was generated output. The estimate is a floor: system prompt, tool schemas, and attachments aren't visible to the renderer.
 
 A failed turn with no usage record does not fabricate an estimate — nothing new entered the context, and the previous gauge value stays.
+
+## Status bar session usage
+
+The bottom status bar shows the visible chat's context fill and token totals, so usage stays visible without hovering the gauge. See [[src/renderer/src/screens/Layout/sessionUsage.ts#formatSessionUsage]].
+
+[[src/renderer/src/screens/Chat/Chat.tsx]] reports usage upward per run (like loading and title), the shell keeps it on the run, and the bar shows it only on the chat tab. The chip turns to a warning at 80% of the window, using the unrounded ratio.

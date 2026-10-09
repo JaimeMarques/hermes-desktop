@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { formatSessionUsage, type SessionUsage } from "./sessionUsage";
 
 interface StatusInfo {
   mode: string;
@@ -16,8 +17,11 @@ interface StatusInfo {
  */
 export function StatusBar({
   activeProfile,
+  sessionUsage = null,
 }: {
   activeProfile: string;
+  /** Token usage of the visible chat session; omitted when not on the chat tab. */
+  sessionUsage?: SessionUsage | null;
 }): React.JSX.Element {
   const [info, setInfo] = useState<StatusInfo | null>(null);
 
@@ -51,6 +55,7 @@ export function StatusBar({
 
   const isMac = window.electron?.process?.platform === "darwin";
   const mod = isMac ? "⌘" : "Ctrl";
+  const usageDisplay = formatSessionUsage(sessionUsage);
 
   return (
     <footer className="status-bar" aria-label="Status">
@@ -80,6 +85,22 @@ export function StatusBar({
               &middot;
             </span>
             <span className="status-item">{info.skillCount} skills</span>
+          </>
+        ) : null}
+        {usageDisplay ? (
+          <>
+            <span className="status-sep" aria-hidden="true">
+              &middot;
+            </span>
+            <span
+              className={`status-item status-usage${usageDisplay.warn ? " status-usage-warn" : ""}`}
+              title={usageDisplay.title}
+              aria-label={usageDisplay.title.replace(/\n/g, ", ")}
+            >
+              {[usageDisplay.context, usageDisplay.totals]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
           </>
         ) : null}
       </div>

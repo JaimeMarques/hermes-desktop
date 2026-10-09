@@ -41,6 +41,7 @@ import type {
   UsageState,
 } from "./types";
 import type { ContextUsage } from "./ContextGauge";
+import type { SessionUsage } from "../Layout/sessionUsage";
 import { contextWindowForModel } from "./contextWindows";
 import { QueuedMessages } from "./QueuedMessages";
 import { SLASH_COMMANDS, type SlashCommand } from "./slashCommands";
@@ -118,6 +119,9 @@ interface ChatProps {
   onSessionIdChange?: (runId: string, sessionId: string | null) => void;
   /** Reports the first user message as a best-effort conversation title. */
   onTitleChange?: (runId: string, title: string) => void;
+  /** Reports token usage (context occupancy + session totals) so the shell's
+   *  status bar can show it for the active run. */
+  onUsageChange?: (runId: string, usage: SessionUsage | null) => void;
   /** Resolved avatar/colour of `profile`, so idle agent avatars in the
    *  transcript show the agent's profile picture instead of the loading gif. */
   agentAppearance?: { color?: string | null; avatar?: string | null };
@@ -136,6 +140,7 @@ function Chat({
   onLoadingChange,
   onSessionIdChange,
   onTitleChange,
+  onUsageChange,
   agentAppearance,
 }: ChatProps): React.JSX.Element {
   const { t } = useI18n();
@@ -1013,6 +1018,47 @@ function Chat({
         cacheWriteTokens: usage.cacheWriteTokens,
       }
     : null;
+
+  // Surface usage upward for the status bar. Depend on primitives (not the
+  // freshly-built contextUsage object) so this only fires when a number moves.
+  const usagePrompt = usage?.promptTokens ?? 0;
+  const usageCompletion = usage?.completionTokens ?? 0;
+  const usageTotal = usage?.totalTokens ?? 0;
+  const usageCost = usage?.cost;
+  const usageCacheRead = usage?.cacheReadTokens;
+  const usageCacheWrite = usage?.cacheWriteTokens;
+  const usageContext = contextUsage?.used ?? 0;
+  const usageWindow = contextUsage?.window ?? 0;
+  const hasUsage = usage !== null;
+  useEffect(() => {
+    if (!onUsageChange) return;
+    if (!hasUsage) {
+      onUsageChange(runId, null);
+      return;
+    }
+    onUsageChange(runId, {
+      contextTokens: usageContext,
+      contextWindow: usageWindow,
+      promptTokens: usagePrompt,
+      completionTokens: usageCompletion,
+      totalTokens: usageTotal,
+      cost: usageCost,
+      cacheReadTokens: usageCacheRead,
+      cacheWriteTokens: usageCacheWrite,
+    });
+  }, [
+    runId,
+    onUsageChange,
+    hasUsage,
+    usageContext,
+    usageWindow,
+    usagePrompt,
+    usageCompletion,
+    usageTotal,
+    usageCost,
+    usageCacheRead,
+    usageCacheWrite,
+  ]);
 
   const handleInspectElement = useCallback(
     (payload: { selector: string; comment: string }) => {
