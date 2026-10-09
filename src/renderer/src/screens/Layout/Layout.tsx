@@ -945,15 +945,11 @@ function Layout({
 
           {visitedViews.has("agents") && (
             <div style={paneStyle("agents")}>
-              {remoteMode ? (
-                <RemoteNotice feature="Profiles" />
-              ) : (
-                <Agents
-                  activeProfile={activeProfile}
-                  onSelectProfile={handleSelectProfile}
-                  onChatWith={handleChatWithProfile}
-                />
-              )}
+              <Agents
+                activeProfile={activeProfile}
+                onSelectProfile={handleSelectProfile}
+                onChatWith={handleChatWithProfile}
+              />
             </div>
           )}
 
