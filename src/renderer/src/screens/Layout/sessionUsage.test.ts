@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  combineUsageTotals,
   formatSessionUsage,
   formatTokens,
   type SessionUsage,
@@ -115,5 +116,72 @@ describe("formatSessionUsage", () => {
     expect(d.totals).toBe("");
     expect(d.title).toContain("estimated from the transcript");
     expect(formatSessionUsage(base)!.context).not.toContain("~");
+  });
+});
+
+describe("combineUsageTotals", () => {
+  const saved = {
+    promptTokens: 1000,
+    completionTokens: 200,
+    totalTokens: 1200,
+    cost: 0.1,
+  };
+  const zero = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+
+  it("adds only what the live counters gained after the saved totals arrived", () => {
+    // A live turn of 300/50 happened after the answer: on top of the record.
+    const total = combineUsageTotals(
+      saved,
+      { ...zero },
+      { promptTokens: 300, completionTokens: 50, totalTokens: 350, cost: 0.02 },
+    );
+    expect(total).toMatchObject({
+      promptTokens: 1300,
+      completionTokens: 250,
+      totalTokens: 1550,
+    });
+    expect(total.cost).toBeCloseTo(0.12, 10);
+  });
+
+  it("does not count a turn twice when the live reply finished BEFORE the saved totals arrived", () => {
+    // The live counters already held 300/50 when the record came back, so that
+    // turn is in the record: it must be neither dropped nor added again.
+    const live = { promptTokens: 300, completionTokens: 50, totalTokens: 350 };
+    expect(combineUsageTotals(saved, live, live)).toMatchObject({
+      promptTokens: 1000,
+      completionTokens: 200,
+      totalTokens: 1200,
+    });
+    // A second live turn after that adds normally.
+    expect(
+      combineUsageTotals(saved, live, {
+        promptTokens: 500,
+        completionTokens: 90,
+        totalTokens: 590,
+      }),
+    ).toMatchObject({ promptTokens: 1200, completionTokens: 240 });
+  });
+
+  it("keeps the live totals when no saved record exists, and never goes negative", () => {
+    expect(
+      combineUsageTotals(null, null, {
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+      }),
+    ).toEqual({ promptTokens: 10, completionTokens: 5, totalTokens: 15 });
+    expect(
+      combineUsageTotals(
+        saved,
+        { promptTokens: 9, completionTokens: 9, totalTokens: 9 },
+        zero,
+      ).promptTokens,
+    ).toBe(1000);
+  });
+
+  it("omits cost when neither side has one", () => {
+    expect(
+      "cost" in combineUsageTotals({ ...zero }, { ...zero }, { ...zero }),
+    ).toBe(false);
   });
 });

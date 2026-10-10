@@ -1367,6 +1367,13 @@ export function useDashboardChatTransport({
               usage?.contextTokens ||
               estimatedContextTokens ||
               prev?.contextTokens,
+            // Exact when the provider reported it; an estimate when we fell back
+            // to the transcript; otherwise whatever the previous turn had.
+            contextEstimated: usage?.contextTokens
+              ? false
+              : estimatedContextTokens
+                ? true
+                : prev?.contextEstimated,
             contextWindowTokens:
               usage?.contextWindowTokens || prev?.contextWindowTokens,
             cacheReadTokens: prev?.cacheReadTokens,

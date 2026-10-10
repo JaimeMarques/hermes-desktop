@@ -1528,6 +1528,8 @@ describe("useDashboardChatTransport context gauge estimate (no usage payload)", 
 
     const usage = lastUsage(setUsage);
     expect(usage?.contextTokens).toBeGreaterThan(0);
+    // ...and it is flagged as a guess so the UI never presents it as exact.
+    expect(usage?.contextEstimated).toBe(true);
   });
 
   it("prefers exact payload usage over the estimate", async () => {
@@ -1552,6 +1554,7 @@ describe("useDashboardChatTransport context gauge estimate (no usage payload)", 
 
     const usage = lastUsage(setUsage);
     expect(usage?.contextTokens).toBe(45000);
+    expect(usage?.contextEstimated).toBe(false);
   });
 
   it("does not fabricate usage for a failed turn without usage", async () => {

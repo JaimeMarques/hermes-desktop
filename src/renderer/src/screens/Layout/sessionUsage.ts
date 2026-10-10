@@ -132,3 +132,42 @@ export function formatSessionUsage(
     warn: knownWindow && usage.contextTokens / usage.contextWindow >= 0.8,
   };
 }
+
+export interface UsageCounters {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cost?: number;
+}
+
+/**
+ * Session totals = what the server had recorded when it answered, plus what the
+ * live counters gained AFTER that moment. `liveBase` is the live counters at the
+ * moment the answer arrived: whatever they held then is assumed to be in the
+ * server's record already, so subtracting it avoids counting a turn twice, and
+ * a turn that finished before the answer arrived is not dropped either.
+ */
+export function combineUsageTotals(
+  saved: UsageCounters | null | undefined,
+  liveBase: UsageCounters | null | undefined,
+  live: UsageCounters | null | undefined,
+): UsageCounters {
+  const added = (now?: number, base?: number): number =>
+    Math.max(0, (now ?? 0) - (base ?? 0));
+  const cost =
+    saved?.cost !== undefined || live?.cost !== undefined
+      ? (saved?.cost ?? 0) + added(live?.cost, liveBase?.cost)
+      : undefined;
+  return {
+    promptTokens:
+      (saved?.promptTokens ?? 0) +
+      added(live?.promptTokens, liveBase?.promptTokens),
+    completionTokens:
+      (saved?.completionTokens ?? 0) +
+      added(live?.completionTokens, liveBase?.completionTokens),
+    totalTokens:
+      (saved?.totalTokens ?? 0) +
+      added(live?.totalTokens, liveBase?.totalTokens),
+    ...(cost !== undefined ? { cost } : {}),
+  };
+}

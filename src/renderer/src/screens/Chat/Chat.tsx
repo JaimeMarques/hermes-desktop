@@ -42,7 +42,11 @@ import type {
   UsageState,
 } from "./types";
 import type { ContextUsage } from "./ContextGauge";
-import type { SessionUsage } from "../Layout/sessionUsage";
+import {
+  combineUsageTotals,
+  type SessionUsage,
+  type UsageCounters,
+} from "../Layout/sessionUsage";
 import { contextWindowForModel } from "./contextWindows";
 import { QueuedMessages } from "./QueuedMessages";
 import { SLASH_COMMANDS, type SlashCommand } from "./slashCommands";
@@ -1019,29 +1023,58 @@ function Chat({
     usage?.contextWindowTokens ??
     realContextWindow ??
     contextWindowForModel(chatCurrentModel);
+  // The count is a guess when nothing live reported it, and also when the turn
+  // that set it fell back to the transcript estimate (usage.contextEstimated).
+  const contextEstimated = usage?.contextTokens
+    ? Boolean(usage.contextEstimated)
+    : estimatedContext > 0;
   const contextUsage: ContextUsage | null = usage?.contextTokens
     ? {
         used: usage.contextTokens,
         window: contextWindow,
         cacheReadTokens: usage.cacheReadTokens,
         cacheWriteTokens: usage.cacheWriteTokens,
+        estimated: contextEstimated,
       }
     : estimatedContext > 0
-      ? { used: estimatedContext, window: contextWindow }
+      ? { used: estimatedContext, window: contextWindow, estimated: true }
       : null;
-  const contextEstimated = !usage?.contextTokens && estimatedContext > 0;
 
-  // A conversation opened from history has no live usage events, so seed its
-  // running totals from what the server has recorded for the session. Only when
-  // nothing live arrived first; new turns are then added on top.
+  // A conversation opened from history has no live usage events, so read the
+  // totals the server has recorded for the session. They are kept SEPARATE from
+  // the live additions and combined below: seeding `usage` itself would be
+  // skipped whenever a live reply happened to finish first.
+  //
+  // `liveBase` is the live total at the moment the reply arrived. Anything the
+  // live counters held by then is assumed to be in the server's record already
+  // (a finished turn is persisted before it completes), so only what is added
+  // AFTER that point is counted on top: no turn is counted twice.
+  const [savedUsage, setSavedUsage] = useState<{
+    totals: NonNullable<
+      Awaited<ReturnType<typeof window.hermesAPI.getSessionUsage>>
+    >;
+    liveBase: UsageCounters;
+  } | null>(null);
+  const liveUsageRef = useRef(usage);
+  liveUsageRef.current = usage;
   useEffect(() => {
+    setSavedUsage(null);
     if (!hermesSessionId) return;
     let cancelled = false;
     window.hermesAPI
       .getSessionUsage(hermesSessionId, connectionId, profile)
       .then((totals) => {
         if (cancelled || !totals) return;
-        setUsage((prev) => prev ?? { ...totals });
+        const live = liveUsageRef.current;
+        setSavedUsage({
+          totals,
+          liveBase: {
+            promptTokens: live?.promptTokens ?? 0,
+            completionTokens: live?.completionTokens ?? 0,
+            totalTokens: live?.totalTokens ?? 0,
+            cost: live?.cost,
+          },
+        });
       })
       .catch(() => {
         /* usage is informational; ignore */
@@ -1053,15 +1086,22 @@ function Chat({
 
   // Surface usage upward for the status bar. Depend on primitives (not the
   // freshly-built contextUsage object) so this only fires when a number moves.
-  const usagePrompt = usage?.promptTokens ?? 0;
-  const usageCompletion = usage?.completionTokens ?? 0;
-  const usageTotal = usage?.totalTokens ?? 0;
-  const usageCost = usage?.cost;
-  const usageCacheRead = usage?.cacheReadTokens;
-  const usageCacheWrite = usage?.cacheWriteTokens;
+  const combined = combineUsageTotals(
+    savedUsage?.totals,
+    savedUsage?.liveBase,
+    usage,
+  );
+  const usagePrompt = combined.promptTokens;
+  const usageCompletion = combined.completionTokens;
+  const usageTotal = combined.totalTokens;
+  const usageCost = combined.cost;
+  const saved = savedUsage?.totals;
+  const usageCacheRead = usage?.cacheReadTokens ?? saved?.cacheReadTokens;
+  const usageCacheWrite = usage?.cacheWriteTokens ?? saved?.cacheWriteTokens;
   const usageContext = contextUsage?.used ?? 0;
   const usageWindow = contextUsage?.window ?? 0;
-  const hasUsage = usage !== null || contextEstimated;
+  const hasUsage =
+    usage !== null || savedUsage !== null || contextUsage !== null;
   useEffect(() => {
     if (!onUsageChange) return;
     if (!hasUsage) {
