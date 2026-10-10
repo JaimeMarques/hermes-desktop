@@ -201,7 +201,7 @@ export default function ProfileModal({
     ) {
       void loadMemoryData();
     }
-  }, [loadMemoryData, memoryData, memoryLoading, profile, section]);
+  }, [activeSection, loadMemoryData, memoryData, memoryLoading, profile]);
 
   const afterMutation = useCallback(async (): Promise<void> => {
     await load();
