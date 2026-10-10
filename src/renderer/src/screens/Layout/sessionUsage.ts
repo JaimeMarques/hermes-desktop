@@ -58,8 +58,17 @@ export function formatSessionUsage(
   const hasTotals = usage.promptTokens > 0 || usage.completionTokens > 0;
   if (!hasContext && !hasTotals) return null;
 
+  // Occupancy above the assumed window means the window is wrong (a name-based
+  // guess), not that the model overflowed — don't print a contradictory
+  // "48k/32k · 100%"; show the occupancy alone and say why in the tooltip.
+  const windowExceeded =
+    hasContext &&
+    usage.contextWindow > 0 &&
+    usage.contextTokens > usage.contextWindow;
+  const knownWindow = usage.contextWindow > 0 && !windowExceeded;
+
   const percent =
-    hasContext && usage.contextWindow > 0
+    hasContext && knownWindow
       ? Math.min(
           100,
           Math.round((usage.contextTokens / usage.contextWindow) * 100),
@@ -69,10 +78,9 @@ export function formatSessionUsage(
   const approx = usage.estimated ? "~" : "";
   let context = "";
   if (hasContext) {
-    context =
-      usage.contextWindow > 0
-        ? `ctx ${approx}${formatTokens(usage.contextTokens)}/${formatTokens(usage.contextWindow)} · ${approx}${percent}%`
-        : `ctx ${approx}${formatTokens(usage.contextTokens)}`;
+    context = knownWindow
+      ? `ctx ${approx}${formatTokens(usage.contextTokens)}/${formatTokens(usage.contextWindow)} · ${approx}${percent}%`
+      : `ctx ${approx}${formatTokens(usage.contextTokens)}`;
   }
 
   const totalsParts: string[] = [];
@@ -88,9 +96,11 @@ export function formatSessionUsage(
   const lines: string[] = [];
   if (hasContext) {
     lines.push(
-      usage.contextWindow > 0
+      knownWindow
         ? `Context: ${usage.contextTokens.toLocaleString("en-US")} of ${usage.contextWindow.toLocaleString("en-US")} tokens (${percent}%)`
-        : `Context: ${usage.contextTokens.toLocaleString("en-US")} tokens (window unknown)`,
+        : windowExceeded
+          ? `Context: ${usage.contextTokens.toLocaleString("en-US")} tokens — above the assumed ${usage.contextWindow.toLocaleString("en-US")} window, so that size is probably wrong (set model.context_length)`
+          : `Context: ${usage.contextTokens.toLocaleString("en-US")} tokens (window unknown)`,
     );
   }
   if (hasTotals) {
@@ -119,8 +129,6 @@ export function formatSessionUsage(
     title: lines.join("\n"),
     percent,
     // Unrounded ratio: 79.5% must not read as "nearly full" because it rounds up.
-    warn:
-      usage.contextWindow > 0 &&
-      usage.contextTokens / usage.contextWindow >= 0.8,
+    warn: knownWindow && usage.contextTokens / usage.contextWindow >= 0.8,
   };
 }

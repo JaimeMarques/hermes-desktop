@@ -59,15 +59,25 @@ describe("formatSessionUsage", () => {
     );
   });
 
-  it("caps the percentage at 100 and omits it when the window is unknown", () => {
-    expect(
-      formatSessionUsage({ ...base, contextTokens: 300_000 })!.percent,
-    ).toBe(100);
+  it("omits the percentage and warning when the window is unknown", () => {
     const d = formatSessionUsage({ ...base, contextWindow: 0 })!;
     expect(d.context).toBe("ctx 38.2k");
     expect(d.percent).toBeNull();
     expect(d.warn).toBe(false);
     expect(d.title).toContain("window unknown");
+  });
+
+  it("does not print a contradictory 48k/32k when occupancy exceeds the assumed window", () => {
+    const d = formatSessionUsage({
+      ...base,
+      contextTokens: 48_000,
+      contextWindow: 32_768,
+    })!;
+    expect(d.context).toBe("ctx 48k");
+    expect(d.percent).toBeNull();
+    expect(d.warn).toBe(false);
+    expect(d.title).toContain("probably wrong");
+    expect(d.title).toContain("32,768");
   });
 
   it("appends cost and cache details only when reported", () => {

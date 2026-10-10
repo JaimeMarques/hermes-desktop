@@ -1031,6 +1031,26 @@ function Chat({
       : null;
   const contextEstimated = !usage?.contextTokens && estimatedContext > 0;
 
+  // A conversation opened from history has no live usage events, so seed its
+  // running totals from what the server has recorded for the session. Only when
+  // nothing live arrived first; new turns are then added on top.
+  useEffect(() => {
+    if (!hermesSessionId) return;
+    let cancelled = false;
+    window.hermesAPI
+      .getSessionUsage(hermesSessionId, connectionId, profile)
+      .then((totals) => {
+        if (cancelled || !totals) return;
+        setUsage((prev) => prev ?? { ...totals });
+      })
+      .catch(() => {
+        /* usage is informational; ignore */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hermesSessionId, connectionId, profile]);
+
   // Surface usage upward for the status bar. Depend on primitives (not the
   // freshly-built contextUsage object) so this only fires when a number moves.
   const usagePrompt = usage?.promptTokens ?? 0;
