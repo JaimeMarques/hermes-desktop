@@ -78,6 +78,15 @@ const PROFILE_SECTIONS: ReadonlyArray<{
   { id: "advanced", labelKey: "agents.sectionAdvanced", Icon: Settings },
 ];
 
+/** Sections whose reads and writes still touch the LOCAL profile files, so in
+ *  Remote mode they would show and edit this machine's profile of the same name
+ *  while the server's stays unchanged. Hidden until they use the dashboard. */
+const REMOTE_HIDDEN_SECTIONS: ReadonlySet<ProfileSection> = new Set([
+  "persona",
+  "agentMemory",
+  "sync",
+]);
+
 /**
  * Global profile detail/appearance modal (80vw × 80vh). Opened from anywhere
  * via the ProfileModalProvider's `openProfile`. Self-loads its data through
@@ -105,6 +114,27 @@ export default function ProfileModal({
   useEffect(() => {
     if (open) setSection(initialSection ?? "profile");
   }, [open, initialSection]);
+  const [remoteMode, setRemoteMode] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    window.hermesAPI
+      .isRemoteOnlyMode()
+      .then((remote) => {
+        if (!cancelled) setRemoteMode(remote);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+  const sections = remoteMode
+    ? PROFILE_SECTIONS.filter((s) => !REMOTE_HIDDEN_SECTIONS.has(s.id))
+    : PROFILE_SECTIONS;
+  // A deep link (or a mode change) can leave a hidden section selected.
+  const activeSection = sections.some((s) => s.id === section)
+    ? section
+    : "profile";
   const [error, setError] = useState("");
   const [memoryData, setMemoryData] = useState<MemoryData | null>(null);
   const [memoryLoading, setMemoryLoading] = useState(false);
@@ -163,7 +193,12 @@ export default function ProfileModal({
   }, [id]);
 
   useEffect(() => {
-    if (section === "agentMemory" && profile && !memoryData && !memoryLoading) {
+    if (
+      activeSection === "agentMemory" &&
+      profile &&
+      !memoryData &&
+      !memoryLoading
+    ) {
       void loadMemoryData();
     }
   }, [loadMemoryData, memoryData, memoryLoading, profile, section]);
@@ -343,12 +378,12 @@ export default function ProfileModal({
         </div>
         {profile && (
           <nav className="profile-modal-nav" aria-label={t("agents.title")}>
-            {PROFILE_SECTIONS.map((s) => (
+            {sections.map((s) => (
               <button
                 key={s.id}
                 type="button"
                 className={`profile-modal-nav-item ${
-                  section === s.id ? "active" : ""
+                  activeSection === s.id ? "active" : ""
                 }`}
                 onClick={() => setSection(s.id)}
               >
@@ -374,7 +409,7 @@ export default function ProfileModal({
 
         {profile ? (
           <div className="profile-modal-content">
-            {section === "profile" && (
+            {activeSection === "profile" && (
               <div className="profile-modal-pane">
                 <div className="profile-modal-identity">
                   <div className="profile-modal-avatar-wrap">
@@ -501,7 +536,7 @@ export default function ProfileModal({
               </div>
             )}
 
-            {section === "persona" && (
+            {activeSection === "persona" && (
               <div className="profile-modal-pane profile-modal-memory-pane">
                 <div className="memory-soul-tab">
                   <Soul profile={profile.id} />
@@ -509,7 +544,7 @@ export default function ProfileModal({
               </div>
             )}
 
-            {section === "agentMemory" && (
+            {activeSection === "agentMemory" && (
               <div className="profile-modal-pane profile-modal-memory-pane">
                 {memoryLoading && !memoryData ? (
                   <div className="profile-modal-loading">
@@ -527,11 +562,15 @@ export default function ProfileModal({
               </div>
             )}
 
-            {section === "wallet" && <ProfileWalletPane profile={profile.id} />}
+            {activeSection === "wallet" && (
+              <ProfileWalletPane profile={profile.id} />
+            )}
 
-            {section === "sync" && <ProfileSyncPane profile={profile.id} />}
+            {activeSection === "sync" && (
+              <ProfileSyncPane profile={profile.id} />
+            )}
 
-            {section === "advanced" && (
+            {activeSection === "advanced" && (
               <div className="profile-modal-pane">
                 {profile.isDefault ? (
                   <p className="profile-modal-danger-info">

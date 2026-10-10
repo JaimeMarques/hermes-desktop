@@ -5,13 +5,16 @@ const request = vi.hoisted(() => vi.fn());
 vi.mock("./config", () => ({
   getConnectionConfig: () => ({ mode: "remote", remoteUrl: "http://r:9119" }),
 }));
+const readMeta = vi.hoisted(() => vi.fn());
 vi.mock("./remote-api", () => ({ remoteDashboardRequestJson: request }));
+vi.mock("./profile-meta", () => ({ readProfileMeta: readMeta }));
 
 import { remoteCreateProfile, remoteListProfiles } from "./remote-profiles";
 
 describe("remote profiles", () => {
   beforeEach(() => {
     request.mockReset();
+    readMeta.mockReset().mockResolvedValue({});
   });
 
   it("maps server profiles and marks the locally selected one active", async () => {
@@ -28,6 +31,25 @@ describe("remote profiles", () => {
     ]);
     expect(list[0]).toMatchObject({ model: "m1", skillCount: 3 });
     expect(list[1].gatewayRunning).toBe(true);
+  });
+
+  it("reads back the desktop's colour and avatar so an edit survives a reload", async () => {
+    request.mockResolvedValue({
+      profiles: [{ name: "work" }, { name: "other" }],
+    });
+    readMeta.mockImplementation(async (name: string) =>
+      name === "work"
+        ? { color: "#112233", avatar: "data:image/png;base64,AAAA" }
+        : {},
+    );
+    const list = await remoteListProfiles("work");
+    expect(list[0]).toMatchObject({
+      color: "#112233",
+      avatar: "data:image/png;base64,AAAA",
+    });
+    // No saved appearance: the generated default colour and no avatar.
+    expect(list[1].avatar).toBeNull();
+    expect(list[1].color).toMatch(/^#/);
   });
 
   it("falls back to default when the selected profile no longer exists", async () => {

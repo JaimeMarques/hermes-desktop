@@ -1,6 +1,7 @@
 import { getConnectionConfig } from "./config";
 import { remoteDashboardRequestJson } from "./remote-api";
 import { defaultColorForName } from "../shared/profileColors";
+import { readProfileMeta } from "./profile-meta";
 import type { ProfileInfo } from "./profiles";
 
 // Remote (HTTP) mode backing for the Agents (profiles) screen. Profiles live
@@ -27,24 +28,30 @@ export async function remoteListProfiles(
     profiles?: RemoteProfileRow[];
   }>(getConnectionConfig(), "/api/profiles");
   const rows = (data?.profiles ?? []).filter((p) => p.name);
-  const list = rows.map((p): ProfileInfo => {
-    const name = p.name as string;
-    return {
-      id: name,
-      name: p.display_name || name,
-      path: p.path || "",
-      isDefault: Boolean(p.is_default) || name === "default",
-      isActive: name === activeName,
-      model: p.model || "",
-      provider: p.provider || "auto",
-      hasEnv: Boolean(p.has_env),
-      hasSoul: false,
-      skillCount: p.skill_count ?? 0,
-      gatewayRunning: Boolean(p.gateway_running),
-      color: defaultColorForName(name),
-      avatar: null,
-    };
-  });
+  const list = await Promise.all(
+    rows.map(async (p): Promise<ProfileInfo> => {
+      const name = p.name as string;
+      // Colour and avatar are desktop-only appearance, stored locally by profile
+      // name (set-profile-color / -avatar write there). Read them back so an edit
+      // is not dropped the next time this list reloads.
+      const meta = await readProfileMeta(name).catch(() => null);
+      return {
+        id: name,
+        name: p.display_name || name,
+        path: p.path || "",
+        isDefault: Boolean(p.is_default) || name === "default",
+        isActive: name === activeName,
+        model: p.model || "",
+        provider: p.provider || "auto",
+        hasEnv: Boolean(p.has_env),
+        hasSoul: false,
+        skillCount: p.skill_count ?? 0,
+        gatewayRunning: Boolean(p.gateway_running),
+        color: meta?.color || defaultColorForName(name),
+        avatar: meta?.avatar || null,
+      };
+    }),
+  );
   if (list.length > 0 && !list.some((p) => p.isActive)) {
     (list.find((p) => p.isDefault) ?? list[0]).isActive = true;
   }

@@ -71,7 +71,10 @@ function profile(name = "Default Agent"): ProfileInfo {
   };
 }
 
-function installHermesAPI(profiles: ProfileInfo[]): {
+function installHermesAPI(
+  profiles: ProfileInfo[],
+  remote = false,
+): {
   setProfileName: ReturnType<typeof vi.fn>;
 } {
   const setProfileName = vi.fn().mockResolvedValue({ success: true });
@@ -85,6 +88,7 @@ function installHermesAPI(profiles: ProfileInfo[]): {
       removeProfileAvatar: vi.fn().mockResolvedValue({ success: true }),
       deleteProfile: vi.fn().mockResolvedValue({ success: true }),
       readMemory: vi.fn().mockResolvedValue({ entries: [] }),
+      isRemoteOnlyMode: vi.fn().mockResolvedValue(remote),
     },
   });
   return { setProfileName };
@@ -195,5 +199,38 @@ describe("ProfileModal deletion failures", () => {
     expect(await screen.findByText("profile is busy")).toBeInTheDocument();
     expect(deleteProfile).toHaveBeenCalledTimes(2);
     expect(deleteProfile).toHaveBeenLastCalledWith("alpha");
+  });
+
+  it("hides the persona, memory and sync sections in Remote mode (they edit local files)", async () => {
+    installHermesAPI([profile()], true);
+    renderModal();
+    await screen.findByRole("button", { name: "agents.sectionProfile" });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "agents.sectionPersona" }),
+      ).toBeNull(),
+    );
+    expect(
+      screen.queryByRole("button", { name: "agents.sectionAgentMemory" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "agents.sectionSync" }),
+    ).toBeNull();
+    // Sections that do not touch the profile files remain.
+    expect(
+      screen.getByRole("button", { name: "agents.sectionWallet" }),
+    ).toBeTruthy();
+    expect(window.hermesAPI.readMemory).not.toHaveBeenCalled();
+  });
+
+  it("shows every section in local mode", async () => {
+    installHermesAPI([profile()], false);
+    renderModal();
+    expect(
+      await screen.findByRole("button", { name: "agents.sectionPersona" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "agents.sectionSync" }),
+    ).toBeTruthy();
   });
 });
