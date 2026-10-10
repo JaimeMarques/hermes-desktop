@@ -16,6 +16,8 @@ export interface SessionUsage {
   cost?: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  /** True when contextTokens is a transcript estimate, not provider-reported. */
+  estimated?: boolean;
 }
 
 export interface SessionUsageDisplay {
@@ -64,12 +66,13 @@ export function formatSessionUsage(
         )
       : null;
 
+  const approx = usage.estimated ? "~" : "";
   let context = "";
   if (hasContext) {
     context =
       usage.contextWindow > 0
-        ? `ctx ${formatTokens(usage.contextTokens)}/${formatTokens(usage.contextWindow)} · ${percent}%`
-        : `ctx ${formatTokens(usage.contextTokens)}`;
+        ? `ctx ${approx}${formatTokens(usage.contextTokens)}/${formatTokens(usage.contextWindow)} · ${approx}${percent}%`
+        : `ctx ${approx}${formatTokens(usage.contextTokens)}`;
   }
 
   const totalsParts: string[] = [];
@@ -94,6 +97,9 @@ export function formatSessionUsage(
     lines.push(
       `Session: ${usage.promptTokens.toLocaleString("en-US")} in, ${usage.completionTokens.toLocaleString("en-US")} out, ${usage.totalTokens.toLocaleString("en-US")} total`,
     );
+  }
+  if (usage.estimated) {
+    lines.push("Context is estimated from the transcript (≈ chars ÷ 4).");
   }
   if (usage.cacheReadTokens !== undefined) {
     lines.push(`Cache read: ${usage.cacheReadTokens.toLocaleString("en-US")}`);

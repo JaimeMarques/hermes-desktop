@@ -91,4 +91,19 @@ describe("formatSessionUsage", () => {
     expect(d.context).toBe("");
     expect(d.totals).toBe("↑120k ↓8.4k");
   });
+
+  it("marks an estimated context with ~ and says so in the tooltip", () => {
+    const d = formatSessionUsage({
+      contextTokens: 12_000,
+      contextWindow: 200_000,
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      estimated: true,
+    })!;
+    expect(d.context).toBe("ctx ~12k/200k · ~6%");
+    expect(d.totals).toBe("");
+    expect(d.title).toContain("estimated from the transcript");
+    expect(formatSessionUsage(base)!.context).not.toContain("~");
+  });
 });

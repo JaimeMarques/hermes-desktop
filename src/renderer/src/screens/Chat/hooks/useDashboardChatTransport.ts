@@ -777,6 +777,20 @@ export function estimateContextTokens(
   return Math.max(Math.round((totalChars - lastAssistantBubbleChars) / 4), 0);
 }
 
+/**
+ * Rough size of a whole transcript as the NEXT turn's context (chars / 4).
+ * Unlike estimateContextTokens (which drops the latest reply because it is the
+ * turn's output), a finished/loaded conversation is all context for what comes
+ * next. Used to show an occupancy before the first live turn reports usage.
+ */
+export function estimateTranscriptTokens(
+  messages: ReadonlyArray<ChatMessage>,
+): number {
+  let totalChars = 0;
+  for (const message of messages) totalChars += messageChars(message);
+  return Math.round(totalChars / 4);
+}
+
 export function completionFailed(payload: unknown): boolean {
   const row = asRecord(payload);
   const status = String(row.status || "").toLowerCase();

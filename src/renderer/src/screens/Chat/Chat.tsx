@@ -24,6 +24,7 @@ import { useLocalCommands } from "./hooks/useLocalCommands";
 import {
   dashboardChatEnabledForConnection,
   useDashboardChatTransport,
+  estimateTranscriptTokens,
 } from "./hooks/useDashboardChatTransport";
 import { useI18n } from "../../components/useI18n";
 import { useChatPreferences } from "../../components/ChatPreferencesProvider";
@@ -1007,17 +1008,28 @@ function Chat({
   // Context-gauge data: the latest turn's prompt tokens vs the model's window.
   // Denominator priority: gateway-reported context_max (authoritative — knows
   // the actual model config) > provider /models catalogue > static heuristic.
+  // Before any live turn has reported usage (a conversation opened from
+  // history, or one still on its first turn) fall back to a transcript
+  // estimate so the occupancy is visible straight away.
+  const estimatedContext = useMemo(
+    () => (usage?.contextTokens ? 0 : estimateTranscriptTokens(messages)),
+    [usage?.contextTokens, messages],
+  );
+  const contextWindow =
+    usage?.contextWindowTokens ??
+    realContextWindow ??
+    contextWindowForModel(chatCurrentModel);
   const contextUsage: ContextUsage | null = usage?.contextTokens
     ? {
         used: usage.contextTokens,
-        window:
-          usage.contextWindowTokens ??
-          realContextWindow ??
-          contextWindowForModel(chatCurrentModel),
+        window: contextWindow,
         cacheReadTokens: usage.cacheReadTokens,
         cacheWriteTokens: usage.cacheWriteTokens,
       }
-    : null;
+    : estimatedContext > 0
+      ? { used: estimatedContext, window: contextWindow }
+      : null;
+  const contextEstimated = !usage?.contextTokens && estimatedContext > 0;
 
   // Surface usage upward for the status bar. Depend on primitives (not the
   // freshly-built contextUsage object) so this only fires when a number moves.
@@ -1029,7 +1041,7 @@ function Chat({
   const usageCacheWrite = usage?.cacheWriteTokens;
   const usageContext = contextUsage?.used ?? 0;
   const usageWindow = contextUsage?.window ?? 0;
-  const hasUsage = usage !== null;
+  const hasUsage = usage !== null || contextEstimated;
   useEffect(() => {
     if (!onUsageChange) return;
     if (!hasUsage) {
@@ -1045,8 +1057,10 @@ function Chat({
       cost: usageCost,
       cacheReadTokens: usageCacheRead,
       cacheWriteTokens: usageCacheWrite,
+      ...(contextEstimated ? { estimated: true } : {}),
     });
   }, [
+    contextEstimated,
     runId,
     onUsageChange,
     hasUsage,
