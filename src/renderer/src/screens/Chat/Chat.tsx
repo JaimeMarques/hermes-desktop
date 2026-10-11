@@ -49,6 +49,7 @@ import {
 } from "../Layout/sessionUsage";
 import { contextWindowForModel } from "./contextWindows";
 import { QueuedMessages } from "./QueuedMessages";
+import { SubagentSection } from "./SubagentSection";
 import { SLASH_COMMANDS, type SlashCommand } from "./slashCommands";
 import { reconcileSlashCatalog } from "./slash/commandCatalog";
 import {
@@ -1188,6 +1189,10 @@ function Chat({
       </div>
 
       <div className="chat-input-area">
+        <SubagentSection
+          controls={dashboardTransport.subagents}
+          sessionId={dashboardTransport.subagentScopeKey}
+        />
         <QueuedMessages
           messages={queuedMessages}
           onRemove={handleRemoveQueued}
