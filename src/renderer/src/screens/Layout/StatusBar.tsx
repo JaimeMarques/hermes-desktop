@@ -39,27 +39,32 @@ export function StatusBar({
 
   useEffect(() => {
     let cancelled = false;
-    let read = 0;
+    let inFlight = false;
     setInfo(null);
     if (!target) return;
     const load = async (): Promise<void> => {
-      const generation = ++read;
-      const profiles = await window.hermesAPI
-        .listProfiles(target)
-        .catch(() => []);
-      if (cancelled || generation !== read || !isCurrent(target)) return;
-      const active = profiles.find((p) => p.id === activeProfile);
-      if (!active) {
-        setInfo(null);
-        return;
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const profiles = await window.hermesAPI
+          .listProfiles(target)
+          .catch(() => []);
+        if (cancelled || !isCurrent(target)) return;
+        const active = profiles.find((p) => p.id === activeProfile);
+        if (!active) {
+          setInfo(null);
+          return;
+        }
+        setInfo({
+          target,
+          mode: target.mode,
+          gatewayRunning: active?.gatewayRunning ?? false,
+          model: active?.model ?? "",
+          skillCount: active?.skillCount ?? 0,
+        });
+      } finally {
+        inFlight = false;
       }
-      setInfo({
-        target,
-        mode: target.mode,
-        gatewayRunning: active?.gatewayRunning ?? false,
-        model: active?.model ?? "",
-        skillCount: active?.skillCount ?? 0,
-      });
     };
     void load();
     // Gateway state + skill count change while the app is open; poll gently.
