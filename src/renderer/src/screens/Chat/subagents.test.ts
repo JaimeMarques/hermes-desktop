@@ -669,3 +669,31 @@ it("isolates the same durable session across connections, profiles and config re
     expect(getSubagents(scope)[0].goal).toBe(`Target ${i}`),
   );
 });
+
+// @lat: [[subagents#Recovery regressions#Finished row fencing]]
+it("keeps terminal evidence after pruning so late snapshots and progress cannot revive controls", () => {
+  applySubagentEvent(SESSION, event("subagent.start", { subagent_id: "done" }));
+  const old = captureSubagentSnapshot(SESSION);
+  applySubagentEvent(
+    SESSION,
+    event("subagent.complete", { subagent_id: "done", status: "completed" }),
+  );
+  pruneFinishedSubagents(SESSION);
+  const running = [{ subagent_id: "done", status: "running" }];
+  reconcileSubagentSnapshot(SESSION, running, old);
+  reconcileSubagentSnapshot(SESSION, running);
+  applySubagentEvent(
+    SESSION,
+    event("subagent.progress", { subagent_id: "done", text: "late" }),
+  );
+  expect(getSubagents(SESSION)).toEqual([]);
+  applySubagentEvent(
+    SESSION,
+    event("subagent.start", { subagent_id: "done", goal: "New delegation" }),
+  );
+  expect(getSubagents(SESSION)[0]).toMatchObject({
+    goal: "New delegation",
+    status: "running",
+    stream: [],
+  });
+});

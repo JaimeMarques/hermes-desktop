@@ -990,6 +990,11 @@ export function useDashboardChatTransport({
   const dashboardUnavailableRef = useRef(false);
   const runtimeSessionIdRef = useRef<string | null>(null);
   const storedSessionIdRef = useRef<string | null>(hermesSessionId);
+  const subagentResumeRef = useRef<{
+    generation: number;
+    promise: Promise<string>;
+    scope: string | null;
+  } | null>(null);
   const reasoningSegmentClosedRef = useRef(false);
   const appliedModelRef = useRef<string | null>(null);
   const recreateRuntimeSessionRef = useRef(false);
@@ -2243,15 +2248,68 @@ export function useDashboardChatTransport({
   const subagentRequest = useCallback(
     async <T>(method: string, params: Record<string, unknown>): Promise<T> => {
       if (!enabled) throw new Error("dashboard transport disabled");
-      const runtimeSessionId = runtimeSessionIdRef.current;
-      if (!runtimeSessionId) throw new Error("no active session");
+      const generation = clientGenerationRef.current;
+      const scope = subagentSessionKey();
+      const storedSessionId = storedSessionIdRef.current;
+      const assertCurrent = (): void => {
+        if (
+          generation !== clientGenerationRef.current ||
+          scope !== subagentSessionKey() ||
+          storedSessionId !== storedSessionIdRef.current
+        )
+          throw new Error(
+            "The conversation changed. Retry on the current chat.",
+          );
+      };
       const client = await ensureClient();
+      assertCurrent();
+      let runtimeSessionId = runtimeSessionIdRef.current;
+      if (!runtimeSessionId && storedSessionId) {
+        let pending = subagentResumeRef.current;
+        if (
+          !pending ||
+          pending.generation !== generation ||
+          pending.scope !== scope
+        ) {
+          const promise = (async (): Promise<string> => {
+            // Roster reads resume a saved chat without sending a message or
+            // creating a replacement session when its durable ID is missing.
+            const resumed = await client.request<SessionResponse>(
+              "session.resume",
+              {
+                session_id: storedSessionId,
+                cols: 96,
+                ...(profile ? { profile } : {}),
+              },
+            );
+            assertCurrent();
+            if (clientRef.current !== client)
+              throw new Error(
+                "The dashboard connection changed. Retry on the current chat.",
+              );
+            if (!resumed?.session_id)
+              throw new Error("session.resume returned no runtime session id");
+            runtimeSessionIdRef.current ??= resumed.session_id;
+            return runtimeSessionIdRef.current;
+          })();
+          pending = { generation, promise, scope };
+          subagentResumeRef.current = pending;
+        }
+        try {
+          runtimeSessionId = await pending.promise;
+        } finally {
+          if (subagentResumeRef.current === pending)
+            subagentResumeRef.current = null;
+        }
+      }
+      assertCurrent();
+      if (!runtimeSessionId) throw new Error("no active session");
       return client.request<T>(method, {
         session_id: runtimeSessionId,
         ...params,
       });
     },
-    [enabled, ensureClient],
+    [enabled, ensureClient, profile, subagentSessionKey],
   );
 
   const subagents = useMemo<SubagentControls | null>(() => {
@@ -2262,9 +2320,9 @@ export function useDashboardChatTransport({
           subagent_id: subagentId,
         }),
       list: async () => {
-        // Before the first turn there is no runtime session, so there cannot be
-        // a child of it either — answer empty rather than erroring the caller.
-        if (!runtimeSessionIdRef.current) return [];
+        // Only a genuinely new chat has neither a runtime nor a durable ID.
+        if (!runtimeSessionIdRef.current && !storedSessionIdRef.current)
+          return [];
         const result = await subagentRequest<{
           subagents?: SubagentSnapshotEntry[];
         }>("subagent.list", {});

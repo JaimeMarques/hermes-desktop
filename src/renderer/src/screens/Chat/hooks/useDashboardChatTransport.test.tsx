@@ -93,6 +93,8 @@ function Harness({
   api,
   connectionId,
   connectionRevision,
+  hermesSessionId = null,
+  profile,
   fallbackOnUnavailable = false,
   initialConnectionMode = "local",
   onDashboardUnavailable,
@@ -101,6 +103,8 @@ function Harness({
   api: HarnessApi;
   connectionId?: string;
   connectionRevision?: number;
+  hermesSessionId?: string | null;
+  profile?: string;
   fallbackOnUnavailable?: boolean;
   initialConnectionMode?: "local" | "remote" | "ssh";
   onDashboardUnavailable?: (reason: string) => void;
@@ -131,10 +135,10 @@ function Harness({
     connectionMode,
     enabled: true,
     fallbackOnUnavailable,
-    hermesSessionId: null,
+    hermesSessionId,
     messagesRef,
     model,
-    profile: undefined,
+    profile,
     provider,
     setHermesSessionId: vi.fn(),
     setIsLoading,
@@ -1800,6 +1804,120 @@ describe("useDashboardChatTransport subagent roster", () => {
   afterEach(() => {
     resetSubagents();
     vi.clearAllMocks();
+  });
+
+  // @lat: [[subagents#Recovery regressions#Reopened conversation]]
+  it("resumes a saved conversation for roster and controls without sending or replacing it", async () => {
+    let finishResume!: (value: unknown) => void;
+    dashboardMock.request.mockImplementation(async (method: string) => {
+      if (method === "session.resume")
+        return new Promise((resolve) => {
+          finishResume = resolve;
+        });
+      if (method === "subagent.list")
+        return { subagents: [{ subagent_id: "existing", status: "running" }] };
+      return { available: true, text: "working", truncated: false };
+    });
+    const api: HarnessApi = {};
+    render(<Harness api={api} hermesSessionId="saved-parent" profile="work" />);
+    const roster = api.subagents!.list();
+    const tail = api.subagents!.tail("existing");
+    await waitFor(() =>
+      expect(dashboardMock.request).toHaveBeenCalledWith("session.resume", {
+        session_id: "saved-parent",
+        cols: 96,
+        profile: "work",
+      }),
+    );
+    finishResume({ session_id: "resumed-parent" });
+    expect(await roster).toEqual([
+      { subagent_id: "existing", status: "running" },
+    ]);
+    expect(await tail).toEqual({
+      available: true,
+      text: "working",
+      truncated: false,
+    });
+    await api.subagents!.steer("existing", "continue");
+    expect(
+      dashboardMock.request.mock.calls.filter(
+        ([method]) => method === "session.resume",
+      ),
+    ).toHaveLength(1);
+    expect(dashboardMock.request).toHaveBeenCalledWith("subagent.steer", {
+      session_id: "resumed-parent",
+      subagent_id: "existing",
+      text: "continue",
+    });
+    expect(
+      dashboardMock.request.mock.calls.some(
+        ([method]) => method === "session.create" || method === "session.send",
+      ),
+    ).toBe(false);
+  });
+
+  it("answers empty for a new chat and does not replace a missing saved conversation", async () => {
+    const api: HarnessApi = {};
+    const view = render(<Harness api={api} />);
+    expect(await api.subagents!.list()).toEqual([]);
+    expect(window.hermesAPI.startDashboard).not.toHaveBeenCalled();
+    dashboardMock.request.mockRejectedValue(new Error("session not found"));
+    view.rerender(<Harness api={api} hermesSessionId="missing-parent" />);
+    await expect(api.subagents!.list()).rejects.toThrow("session not found");
+    expect(
+      dashboardMock.request.mock.calls.some(
+        ([method]) => method === "session.create",
+      ),
+    ).toBe(false);
+  });
+
+  // @lat: [[subagents#Recovery regressions#Resume target isolation]]
+  it("rejects a late saved-chat resume after the connection revision changes", async () => {
+    let finishResume!: (value: unknown) => void;
+    dashboardMock.request.mockImplementation(async (method: string) => {
+      if (method === "session.resume")
+        return new Promise((resolve) => {
+          finishResume = resolve;
+        });
+      return {};
+    });
+    const api: HarnessApi = {};
+    const view = render(
+      <Harness
+        api={api}
+        connectionId="server"
+        connectionRevision={1}
+        hermesSessionId="saved-parent"
+      />,
+    );
+    const pending = api
+      .subagents!.steer("existing", "old target")
+      .catch((error: unknown) => error);
+    await waitFor(() =>
+      expect(dashboardMock.request).toHaveBeenCalledWith(
+        "session.resume",
+        expect.anything(),
+      ),
+    );
+    view.rerender(
+      <Harness
+        api={api}
+        connectionId="server"
+        connectionRevision={2}
+        hermesSessionId="saved-parent"
+      />,
+    );
+    finishResume({ session_id: "old-runtime" });
+    expect(await pending).toEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("conversation changed"),
+      }),
+    );
+    expect(
+      dashboardMock.request.mock.calls.some(
+        ([method]) => method === "subagent.steer",
+      ),
+    ).toBe(false);
   });
 
   it("keeps a delegated child's activity in the roster, not the transcript", async () => {

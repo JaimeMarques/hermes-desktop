@@ -110,6 +110,7 @@ interface RowEvidence {
   revision: number;
   lastEventAt: number;
   misses: number;
+  terminal: boolean;
 }
 const evidenceByScope = new Map<string, Map<string, RowEvidence>>();
 const snapshots = new Map<string, { next: number; applied: number }>();
@@ -404,14 +405,23 @@ export function applySubagentEvent(
   const id = idOf(payload);
   const index = rows.findIndex((item) => item.id === id);
   const prev = index >= 0 ? rows[index] : undefined;
-  if (prev && TERMINAL.has(prev.status) && event.type !== "subagent.start")
+  const records = rowEvidence(sessionId);
+  if (
+    (records.get(id)?.terminal || (prev && TERMINAL.has(prev.status))) &&
+    event.type !== "subagent.start"
+  )
     return true;
-  rowEvidence(sessionId).set(id, {
+  const next = toProgress(
+    payload,
+    prev && TERMINAL.has(prev.status) ? undefined : prev,
+    event.type,
+  );
+  records.set(id, {
     revision: ++eventRevision,
     lastEventAt: Date.now(),
     misses: 0,
+    terminal: TERMINAL.has(next.status),
   });
-  const next = toProgress(payload, prev, event.type);
 
   if (sameRow(prev, next)) return true;
 
@@ -444,6 +454,7 @@ export function reconcileSubagentSnapshot(
       revision: 0,
       lastEventAt: 0,
       misses: 0,
+      terminal: TERMINAL.has(item.status),
     };
     records.set(item.id, evidence);
     if (
@@ -470,9 +481,9 @@ export function reconcileSubagentSnapshot(
     const index = next.findIndex((item) => item.id === id);
     const prev = index >= 0 ? next[index] : undefined;
     if (
-      prev &&
-      (TERMINAL.has(prev.status) ||
-        (records.get(id)?.revision ?? 0) > token.eventRevision)
+      records.get(id)?.terminal ||
+      (records.get(id)?.revision ?? 0) > token.eventRevision ||
+      (prev && TERMINAL.has(prev.status))
     )
       return;
 

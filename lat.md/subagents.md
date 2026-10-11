@@ -31,7 +31,7 @@ Expanding a row reveals the child's own stream, its live output tail (`subagent.
 
 [[src/renderer/src/screens/Chat/hooks/useDashboardChatTransport.ts]] intercepts `subagent.*` events before they reach the message-stream adapter (they never append to the transcript) and keys the roster by the durable session id the chat is showing.
 
-The roster RPCs (`subagent.list`, `subagent.steer`, `subagent.interrupt`, `subagent.tail`) are bound to this conversation's runtime session, so a control can never address whichever session happens to be active. `list` answers empty before the first turn rather than erroring, because a conversation without a runtime session cannot have a child.
+The roster RPCs (`subagent.list`, `subagent.steer`, `subagent.interrupt`, `subagent.tail`) are bound to this conversation's runtime session, so a control can never address whichever session happens to be active. `list` answers empty only for a new conversation. Reopened conversations resume their durable session for roster reads and controls without sending a message or creating a replacement. Connection, profile, revision and conversation changes reject late resumes.
 
 ## Verification
 
@@ -64,3 +64,15 @@ The complete roster scrolls inside a 30-viewport-percent or 240-pixel height lim
 ### Control state isolation
 
 Changing conversation scope remounts expanded controls, so identical child IDs cannot carry drafts or late transcript/action results to another target. Covered by [[src/renderer/src/screens/Chat/SubagentSection.test.tsx]].
+
+### Finished row fencing
+
+Terminal evidence survives display pruning, preventing old snapshots and progress events from restoring completed children or controls until an explicit new start. Covered by [[src/renderer/src/screens/Chat/subagents.test.ts]].
+
+### Reopened conversation
+
+Reading a saved chat resumes its existing session once for concurrent roster and control requests without sending a message or creating another conversation. Covered by [[src/renderer/src/screens/Chat/hooks/useDashboardChatTransport.test.tsx]].
+
+### Resume target isolation
+
+A target change while a saved chat resumes rejects the old action before any child RPC reaches the replacement target. Covered by [[src/renderer/src/screens/Chat/hooks/useDashboardChatTransport.test.tsx]].
