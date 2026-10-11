@@ -12,7 +12,7 @@ Remote profile operations use the dashboard's authenticated profile routes with 
 
 Remote selection is a desktop preference owned by connection id and dashboard URL. It neither invokes the local Hermes CLI nor changes the server's sticky default profile.
 
-[[src/main/remote-profile-selection.ts#getRemoteSelectedProfile]] restores a valid selection from `desktop.json`; missing selections fall back to the listed default. [[src/main/remote-profile-selection.ts#setRemoteSelectedProfile]] preserves other preferences. Local and SSH selection retain their existing persisted active-profile behavior and gateway startup.
+[[src/main/remote-profile-selection.ts#getRemoteSelectedProfile]] restores the saved selection from `desktop.json`. If the server no longer lists that name, no profile is marked active and status metadata stays unknown; the list read does not rewrite the selection. [[src/main/remote-profile-selection.ts#setRemoteSelectedProfile]] preserves other preferences. Local and SSH selection retain their existing persisted active-profile behavior and gateway startup.
 
 ### Authority and lifetimes
 
@@ -35,6 +35,14 @@ Actual components, the real Layout parent, production IPC callbacks and API help
 ### Server profiles stay separate from local metadata
 
 A server list maps display identity and selection without consulting a same-named desktop profile's avatar or color.
+
+### Missing saved selections stay unresolved
+
+When a saved name is absent from the server list, every active flag stays false and the list read leaves desktop preferences unchanged. Invalid response shapes still fail instead of supplying replacement profiles.
+
+### Missing profile footer cannot borrow default status
+
+Actual Remote list mapping and StatusBar rendering omit model, gateway and skill metadata for an absent saved profile. Initial loads, profile changes and a later server deletion cannot show another profile's status or fabricate an offline state.
 
 ### Creation acknowledgement and input validation
 

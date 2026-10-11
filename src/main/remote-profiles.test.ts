@@ -84,13 +84,16 @@ describe("Remote profile contract", () => {
     state.request.mockResolvedValue({ ok: true });
     expect((await remoteCreateProfile("valid", null)).success).toBe(false);
   });
-  it("rejects invalid lists and falls back when a selected profile disappears", async () => {
+  // @lat: [[remote-profiles#Tests#Missing saved selections stay unresolved]]
+  it("rejects invalid lists and leaves all profiles inactive when the saved selection disappears", async () => {
     state.request.mockResolvedValue({
       profiles: [{ name: "default" }, { name: "work" }],
     });
-    expect((await remoteListProfiles("gone")).find((p) => p.isActive)?.id).toBe(
-      "default",
-    );
+    expect((await remoteListProfiles("gone")).map((p) => p.isActive)).toEqual([
+      false,
+      false,
+    ]);
+    expect(state.write).not.toHaveBeenCalled();
     state.request.mockResolvedValue({ success: true });
     await expect(remoteListProfiles("default")).rejects.toThrow("invalid");
   });

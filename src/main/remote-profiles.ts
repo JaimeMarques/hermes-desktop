@@ -132,8 +132,6 @@ export async function remoteListProfiles(
       avatar: null,
     }),
   );
-  if (list.length && !list.some((p) => p.isActive))
-    (list.find((p) => p.isDefault) || list[0]).isActive = true;
   return list;
 }
 
