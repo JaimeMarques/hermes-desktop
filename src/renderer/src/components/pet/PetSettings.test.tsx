@@ -26,9 +26,19 @@ vi.mock("./petGateway", () => ({
 }));
 vi.mock("../useI18n", () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 
-beforeEach(() =>
-  openGateway.mockResolvedValue({ request, close, connected: true }),
-);
+let notifyConnectionChange = (): void => {};
+beforeEach(() => {
+  Object.defineProperty(window, "hermesAPI", {
+    configurable: true,
+    value: {
+      onConnectionConfigChanged: vi.fn((handler) => {
+        notifyConnectionChange = () => handler({});
+        return vi.fn();
+      }),
+    },
+  });
+  openGateway.mockResolvedValue({ request, close, connected: true });
+});
 
 afterEach(() => {
   cleanup();
@@ -38,6 +48,40 @@ afterEach(() => {
 });
 
 describe("PetSettings", () => {
+  // @lat: [[shared-pets#Connection edit regressions#Settings refresh]]
+  it("clears old gallery data and reconnects when the endpoint changes under the same connection ID", async () => {
+    let resolveOld!: (value: unknown) => void;
+    let calls = 0;
+    request.mockImplementation((method: string) => {
+      if (method === "pet.gallery") {
+        if (++calls === 1)
+          return new Promise((resolve) => {
+            resolveOld = resolve;
+          });
+        return Promise.resolve({
+          enabled: false,
+          active: "",
+          pets: [{ slug: "new", displayName: "New endpoint", installed: true }],
+        });
+      }
+      return Promise.resolve({ enabled: false });
+    });
+    render(<PetSettings profile="work" connectionId="machine-a" />);
+    await waitFor(() => expect(calls).toBe(1));
+    act(() => notifyConnectionChange());
+    expect(await screen.findByText("New endpoint")).toBeInTheDocument();
+    await act(async () =>
+      resolveOld({
+        enabled: false,
+        active: "",
+        pets: [{ slug: "old", displayName: "Old endpoint", installed: true }],
+      }),
+    );
+    expect(screen.queryByText("Old endpoint")).not.toBeInTheDocument();
+    expect(close).toHaveBeenCalled();
+    expect(openGateway).toHaveBeenCalledTimes(2);
+  });
+
   it("loads the selected profile's gallery and adopts a pet through the backend", async () => {
     request.mockImplementation((method: string) => {
       if (method === "pet.gallery")

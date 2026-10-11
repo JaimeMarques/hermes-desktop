@@ -19,3 +19,23 @@ Selecting, disabling, scaling, renaming, exporting and removing call the upstrea
 The `pet.changed` event is an immediate hint; focus/poll reconnects a dropped socket, and an in-flight metadata read rechecks after a newer change. [[src/renderer/src/components/pet/PetSprite.tsx#PetSprite]] renders both legacy and current state rows using the gateway's geometry and real frame counts. The displayed run owns activity; legacy and dashboard failures use the failed pose rather than a success wave. Saved drag positions are clamped when the window shrinks. Only drag position is local to this device; profile selection and size remain in shared Hermes config.
 
 The mascot is inside the Hermes One window. Official-desktop pop-out, roaming, and pet-generation UI are separate presentation features, not alternate storage formats.
+
+## Connection edit regressions
+
+Editing a connection in place releases its socket and rejects old reads, so the gallery and mascot follow the edited endpoint rather than a cached machine identity.
+
+### Handshake fencing
+
+A config change while Dashboard startup or ticket issuance is pending aborts the handshake before another endpoint can supply the socket URL. Covered by [[src/renderer/src/components/pet/petGateway.test.ts]].
+
+### Settings refresh
+
+The settings gallery reconnects on a config revision even when the connection ID is unchanged, and discards a delayed previous gallery read. Covered by [[src/renderer/src/components/pet/PetSettings.test.tsx]].
+
+### Mascot refresh
+
+The floating pet closes the old socket and ignores its pending sprite after an endpoint edit. Covered by [[src/renderer/src/components/pet/FloatingPet.test.tsx]].
+
+## Settings navigation
+
+A real settings dialog opened from a conversation keeps its explicit machine and profile through pet selection, and releases its old socket when reopened for another conversation. Covered by [[src/renderer/src/components/settings/PetSettings.navigation.test.tsx]].

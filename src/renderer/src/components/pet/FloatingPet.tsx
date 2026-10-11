@@ -8,6 +8,7 @@ import {
   type PetInfoPayload,
 } from "./petGateway";
 import type { DashboardGatewayClient } from "../../screens/Chat/dashboardGatewayClient";
+import { useConnectionTargetRevision } from "../../hooks/useConnectionTargetRevision";
 
 interface Props {
   connectionId: string;
@@ -36,6 +37,7 @@ export default function FloatingPet({
   busy,
   onOpenSettings,
 }: Props): React.JSX.Element | null {
+  const connectionRevision = useConnectionTargetRevision();
   const [info, setInfo] = useState<PetInfoPayload>({ enabled: false });
   const infoRef = useRef<PetInfoPayload>({ enabled: false });
   const [activity, setActivity] = useState<PetActivity>({});
@@ -214,7 +216,7 @@ export default function FloatingPet({
       window.removeEventListener("hermes-pet-changed", localChange);
       socket?.close();
     };
-  }, [connectionId, profile]);
+  }, [connectionId, profile, connectionRevision]);
 
   useEffect(() => {
     const onActivity = (event: Event): void => {

@@ -7,6 +7,7 @@ import {
   type PetGalleryEntry,
 } from "./petGateway";
 import type { DashboardGatewayClient } from "../../screens/Chat/dashboardGatewayClient";
+import { useConnectionTargetRevision } from "../../hooks/useConnectionTargetRevision";
 
 interface PetSettingsProps {
   profile: string;
@@ -26,6 +27,7 @@ export default function PetSettings({
   connectionId,
 }: PetSettingsProps): React.JSX.Element {
   const { t } = useI18n();
+  const connectionRevision = useConnectionTargetRevision();
   const [client, setClient] = useState<DashboardGatewayClient | null>(null);
   const [gallery, setGallery] = useState<PetGallery | null>(null);
   const [meta, setMeta] = useState<PetMeta | null>(null);
@@ -147,7 +149,7 @@ export default function PetSettings({
       window.removeEventListener("focus", focus);
       socket?.close();
     };
-  }, [profile, connectionId]);
+  }, [profile, connectionId, connectionRevision]);
 
   const visible = useMemo(
     () =>

@@ -10,24 +10,40 @@ export async function openPetGateway(
   connectionId: string,
   onEvent?: DashboardGatewayClientOptions["onEvent"],
 ): Promise<DashboardGatewayClient> {
-  const status = await window.hermesAPI.startDashboard(profile, connectionId);
-  if (!status.running || !status.connection) {
-    throw new Error(
-      status.error || "Pet gateway is unavailable on this connection",
-    );
-  }
   const client = new DashboardGatewayClient({ onEvent });
+  let changed = false;
+  const unsubscribe = window.hermesAPI.onConnectionConfigChanged(() => {
+    changed = true;
+    client.close();
+  });
+  const assertCurrent = (): void => {
+    if (changed)
+      throw new Error(
+        "Pet connection changed; retry on the current connection",
+      );
+  };
   try {
+    const status = await window.hermesAPI.startDashboard(profile, connectionId);
+    assertCurrent();
+    if (!status.running || !status.connection) {
+      throw new Error(
+        status.error || "Pet gateway is unavailable on this connection",
+      );
+    }
     // OAuth tickets are single-use; never share the URL with the chat socket.
     const url = window.hermesAPI.freshDashboardWsUrl
       ? await window.hermesAPI.freshDashboardWsUrl(profile, connectionId)
       : status.connection.wsUrl;
+    assertCurrent();
     if (!url) throw new Error("Pet gateway WebSocket URL is unavailable");
     await client.connect(url);
+    assertCurrent();
     return client;
   } catch (error) {
     client.close();
     throw error;
+  } finally {
+    unsubscribe();
   }
 }
 

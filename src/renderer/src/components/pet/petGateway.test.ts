@@ -17,6 +17,7 @@ beforeEach(() => {
   request.mockReset();
   connect.mockResolvedValue(undefined);
   (window as unknown as { hermesAPI: unknown }).hermesAPI = {
+    onConnectionConfigChanged: vi.fn().mockReturnValue(vi.fn()),
     startDashboard: vi.fn().mockResolvedValue({
       running: true,
       connection: { wsUrl: "ws://fallback" },
@@ -37,6 +38,33 @@ describe("pet gateway interoperability", () => {
       "machine-b",
     );
     expect(connect).toHaveBeenCalledWith("ws://fresh-ticket");
+  });
+
+  // @lat: [[shared-pets#Connection edit regressions#Handshake fencing]]
+  it("does not pair a dashboard from the old endpoint with a ticket from an edited endpoint", async () => {
+    let changed = (): void => {};
+    const unsubscribe = vi.fn();
+    vi.mocked(window.hermesAPI.onConnectionConfigChanged).mockImplementation(
+      (handler) => {
+        changed = () => handler({} as never);
+        return unsubscribe;
+      },
+    );
+    let resolveStart!: (value: unknown) => void;
+    vi.mocked(window.hermesAPI.startDashboard).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStart = resolve as (value: unknown) => void;
+        }),
+    );
+    const pending = openPetGateway("phoenix", "machine-b");
+    const failure = expect(pending).rejects.toThrow(/connection changed/i);
+    changed();
+    resolveStart({ running: true, connection: { wsUrl: "ws://old-endpoint" } });
+    await failure;
+    expect(window.hermesAPI.freshDashboardWsUrl).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
   it("does not fall back to local pets when the selected connection has no dashboard", async () => {

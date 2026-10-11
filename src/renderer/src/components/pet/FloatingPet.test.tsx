@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import FloatingPet from "./FloatingPet";
 
@@ -20,6 +20,19 @@ vi.mock("./PetSprite", () => ({
   ),
 }));
 
+let notifyConnectionChange = (): void => {};
+beforeEach(() => {
+  Object.defineProperty(window, "hermesAPI", {
+    configurable: true,
+    value: {
+      onConnectionConfigChanged: vi.fn((handler) => {
+        notifyConnectionChange = () => handler({});
+        return vi.fn();
+      }),
+    },
+  });
+});
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -28,6 +41,47 @@ afterEach(() => {
 });
 
 describe("FloatingPet", () => {
+  // @lat: [[shared-pets#Connection edit regressions#Mascot refresh]]
+  it("discards an old endpoint's pending sprite after editing a connection in place", async () => {
+    let resolveOld!: (value: unknown) => void;
+    open.mockResolvedValue(client);
+    petRequest.mockResolvedValue({
+      enabled: true,
+      slug: "cat",
+      spritesheetRevision: "1",
+    });
+    refresh
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOld = resolve;
+          }),
+      )
+      .mockResolvedValue({
+        enabled: true,
+        slug: "dog",
+        spritesheetBase64: "new",
+        spritesheetRevision: "2",
+      });
+    render(
+      <FloatingPet connectionId="machine-a" profile="work" busy={false} />,
+    );
+    await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    act(() => notifyConnectionChange());
+    expect(await screen.findByText("dog: idle")).toBeInTheDocument();
+    await act(async () =>
+      resolveOld({
+        enabled: true,
+        slug: "cat",
+        spritesheetBase64: "old",
+        spritesheetRevision: "1",
+      }),
+    );
+    expect(screen.queryByText("cat: idle")).not.toBeInTheDocument();
+    expect(client.close).toHaveBeenCalled();
+    expect(open).toHaveBeenCalledTimes(2);
+  });
+
   it("clamps a saved drag position into the current content area", async () => {
     localStorage.setItem(
       "hermes.one.pet.position.v1",
