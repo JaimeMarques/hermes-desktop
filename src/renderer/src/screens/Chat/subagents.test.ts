@@ -697,3 +697,27 @@ it("keeps terminal evidence after pruning so late snapshots and progress cannot 
     stream: [],
   });
 });
+
+// @lat: [[subagents#Recovery regressions#Snapshot terminal fencing]]
+it.each([false, true])(
+  "keeps terminal snapshot evidence after pruning (previously running: %s)",
+  (running) => {
+    if (running)
+      reconcileSubagentSnapshot(SESSION, [
+        { subagent_id: "done", status: "running" },
+      ]);
+    reconcileSubagentSnapshot(SESSION, [
+      { subagent_id: "done", status: "completed" },
+    ]);
+    expect(getSubagents(SESSION)[0].status).toBe("completed");
+    pruneFinishedSubagents(SESSION);
+    reconcileSubagentSnapshot(SESSION, [
+      { subagent_id: "done", status: "running" },
+    ]);
+    applySubagentEvent(
+      SESSION,
+      event("subagent.progress", { subagent_id: "done", text: "late" }),
+    );
+    expect(getSubagents(SESSION)).toEqual([]);
+  },
+);

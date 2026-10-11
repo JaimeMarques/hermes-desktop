@@ -488,6 +488,14 @@ export function reconcileSubagentSnapshot(
       return;
 
     const projected = toProgress(entry as Record<string, unknown>, prev);
+    const evidence = records.get(id) ?? {
+      revision: 0,
+      lastEventAt: 0,
+      misses: 0,
+      terminal: false,
+    };
+    evidence.terminal = TERMINAL.has(projected.status);
+    records.set(id, evidence);
     // The roster records the LAST tool, not a call still executing: seed a cold
     // row once, never append over newer live text on a repeat snapshot.
     if (!projected.stream.length && str(entry.last_tool)) {

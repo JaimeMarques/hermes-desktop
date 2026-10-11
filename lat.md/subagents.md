@@ -31,7 +31,7 @@ Expanding a row reveals the child's own stream, its live output tail (`subagent.
 
 [[src/renderer/src/screens/Chat/hooks/useDashboardChatTransport.ts]] intercepts `subagent.*` events before they reach the message-stream adapter (they never append to the transcript) and keys the roster by the durable session id the chat is showing.
 
-The roster RPCs (`subagent.list`, `subagent.steer`, `subagent.interrupt`, `subagent.tail`) are bound to this conversation's runtime session, so a control can never address whichever session happens to be active. `list` answers empty only for a new conversation. Reopened conversations resume their durable session for roster reads and controls without sending a message or creating a replacement. Connection, profile, revision and conversation changes reject late resumes.
+The roster RPCs (`subagent.list`, `subagent.steer`, `subagent.interrupt`, `subagent.tail`) are bound to this conversation's runtime session, so a control can never address whichever session happens to be active. `list` answers empty only for a new conversation. Reopened conversations use the Agent’s lazy watch resume for roster reads and controls without sending a message, auto-continuing an interrupted turn or creating a replacement conversation. Connection, profile, revision and conversation changes reject late resumes.
 
 ## Verification
 
@@ -76,3 +76,11 @@ Reading a saved chat resumes its existing session once for concurrent roster and
 ### Resume target isolation
 
 A target change while a saved chat resumes rejects the old action before any child RPC reaches the replacement target. Covered by [[src/renderer/src/screens/Chat/hooks/useDashboardChatTransport.test.tsx]].
+
+### Snapshot terminal fencing
+
+Terminal evidence is recorded for both cold snapshot hydration and running-to-completed snapshot updates, so pruning cannot restore completed children through late polls or events. Covered by [[src/renderer/src/screens/Chat/subagents.test.ts]].
+
+### Conversation return fencing
+
+Leaving a conversation invalidates a pending child control even if the same durable ID is reopened, and unmount rejects pending resumes before dispatch. Covered by [[src/renderer/src/screens/Chat/hooks/useDashboardChatTransport.test.tsx]].

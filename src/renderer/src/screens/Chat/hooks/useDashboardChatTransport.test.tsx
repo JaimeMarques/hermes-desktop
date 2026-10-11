@@ -1826,6 +1826,7 @@ describe("useDashboardChatTransport subagent roster", () => {
       expect(dashboardMock.request).toHaveBeenCalledWith("session.resume", {
         session_id: "saved-parent",
         cols: 96,
+        lazy: true,
         profile: "work",
       }),
     );
@@ -1919,6 +1920,48 @@ describe("useDashboardChatTransport subagent roster", () => {
       ),
     ).toBe(false);
   });
+
+  // @lat: [[subagents#Recovery regressions#Conversation return fencing]]
+  it.each([false, true])(
+    "rejects a pending saved-chat control after leaving its conversation (unmount: %s)",
+    async (unmount) => {
+      let finishResume!: (value: unknown) => void;
+      dashboardMock.request.mockImplementation(async (method: string) => {
+        if (method === "session.resume")
+          return new Promise((resolve) => {
+            finishResume = resolve;
+          });
+        return {};
+      });
+      const api: HarnessApi = {};
+      const view = render(<Harness api={api} hermesSessionId="saved-A" />);
+      const pending = api
+        .subagents!.steer("existing", "old draft")
+        .catch((error: unknown) => error);
+      await waitFor(() =>
+        expect(dashboardMock.request).toHaveBeenCalledWith(
+          "session.resume",
+          expect.anything(),
+        ),
+      );
+      if (unmount) view.unmount();
+      else {
+        view.rerender(<Harness api={api} hermesSessionId="saved-B" />);
+        view.rerender(<Harness api={api} hermesSessionId="saved-A" />);
+      }
+      finishResume({ session_id: "old-runtime" });
+      expect(await pending).toEqual(
+        expect.objectContaining({
+          message: expect.stringContaining("conversation changed"),
+        }),
+      );
+      expect(
+        dashboardMock.request.mock.calls.some(
+          ([method]) => method === "subagent.steer",
+        ),
+      ).toBe(false);
+    },
+  );
 
   it("keeps a delegated child's activity in the roster, not the transcript", async () => {
     const requests: Array<{ method: string; params: unknown }> = [];

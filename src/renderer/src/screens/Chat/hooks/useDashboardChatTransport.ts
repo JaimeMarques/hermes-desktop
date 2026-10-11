@@ -990,6 +990,7 @@ export function useDashboardChatTransport({
   const dashboardUnavailableRef = useRef(false);
   const runtimeSessionIdRef = useRef<string | null>(null);
   const storedSessionIdRef = useRef<string | null>(hermesSessionId);
+  const conversationGenerationRef = useRef(0);
   const subagentResumeRef = useRef<{
     generation: number;
     promise: Promise<string>;
@@ -1145,6 +1146,8 @@ export function useDashboardChatTransport({
 
   useEffect(() => {
     if (hermesSessionId === storedSessionIdRef.current) return;
+    conversationGenerationRef.current += 1;
+    subagentResumeRef.current = null;
     expirePendingApprovalsRef.current();
     storedSessionIdRef.current = hermesSessionId;
     runtimeSessionIdRef.current = null;
@@ -1162,6 +1165,7 @@ export function useDashboardChatTransport({
 
   useEffect(() => {
     clientGenerationRef.current += 1;
+    subagentResumeRef.current = null;
     dashboardUnavailableRef.current = false;
     expirePendingApprovalsRef.current(true);
     clientRef.current?.close();
@@ -2233,6 +2237,8 @@ export function useDashboardChatTransport({
 
   useEffect(
     () => () => {
+      clientGenerationRef.current += 1;
+      subagentResumeRef.current = null;
       expirePendingClarifyRef.current();
       expirePendingApprovalsRef.current();
       clientRef.current?.close();
@@ -2249,11 +2255,13 @@ export function useDashboardChatTransport({
     async <T>(method: string, params: Record<string, unknown>): Promise<T> => {
       if (!enabled) throw new Error("dashboard transport disabled");
       const generation = clientGenerationRef.current;
+      const conversationGeneration = conversationGenerationRef.current;
       const scope = subagentSessionKey();
       const storedSessionId = storedSessionIdRef.current;
       const assertCurrent = (): void => {
         if (
           generation !== clientGenerationRef.current ||
+          conversationGeneration !== conversationGenerationRef.current ||
           scope !== subagentSessionKey() ||
           storedSessionId !== storedSessionIdRef.current
         )
@@ -2279,6 +2287,7 @@ export function useDashboardChatTransport({
               {
                 session_id: storedSessionId,
                 cols: 96,
+                lazy: true,
                 ...(profile ? { profile } : {}),
               },
             );
