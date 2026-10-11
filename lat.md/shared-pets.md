@@ -57,3 +57,11 @@ Ordinary polls wait through the entire local and online gallery request, while e
 ### Clarification waiting
 
 A loading pause for clarification keeps the waiting pose until the answer resumes the run or a terminal event finishes it. Covered by [[src/renderer/src/components/pet/FloatingPet.test.tsx]].
+
+### Obsolete native replies
+
+A delayed native prompt reply cannot fail a replacement turn, clear its loading state or project a failure pose. Runtime recovery and attachment replies retain the same submitted-turn and connection lifetime.
+
+### Current native failure
+
+A failure of the currently submitted turn still clears its loading state, displays its error and projects one failure event for that turn's pet owner.
