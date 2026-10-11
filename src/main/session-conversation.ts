@@ -44,6 +44,7 @@ export function conversationPredicate(
 ): string {
   const clauses = [listableSessionChildPredicate(columns)];
   if (columns.includes("archived")) clauses.push("s.archived = 0");
+  if (columns.includes("hidden")) clauses.push("s.hidden = 0");
   if (columns.includes("source"))
     clauses.push(
       "LOWER(TRIM(COALESCE(s.source, ''))) NOT IN ('kanban', 'tool', 'oneshot')",
@@ -69,6 +70,8 @@ def session_conversation_predicate(conn, columns):
     clauses = [listable_session_child_predicate(columns)]
     if "archived" in columns:
         clauses.append("s.archived = 0")
+    if "hidden" in columns:
+        clauses.append("s.hidden = 0")
     if "source" in columns:
         clauses.append("LOWER(TRIM(COALESCE(s.source, ''))) NOT IN ('kanban', 'tool', 'oneshot')")
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'desktop_session_conversation_exclusions'").fetchone():

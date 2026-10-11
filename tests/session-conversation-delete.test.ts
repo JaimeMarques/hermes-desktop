@@ -128,6 +128,31 @@ function remote(script: string, payload: unknown): unknown {
     }),
   );
 }
+function seedNativeVisibility(
+  profile: string,
+  hasHiddenColumn: boolean,
+): Database.Database {
+  const db = seed(profile);
+  if (hasHiddenColumn)
+    db.exec(
+      "ALTER TABLE sessions ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
+    );
+  db.exec(`
+    INSERT INTO sessions(id, source, started_at) VALUES ('room', 'bot_room', 500);
+    INSERT INTO sessions(id, parent_session_id, model_config, started_at)
+      VALUES ('hidden-branch', 'parent', '{"_branched_from":"parent"}', 400);
+    UPDATE sessions SET started_at = 350 WHERE id = 'other';
+    UPDATE sessions SET started_at = 300 WHERE id = 'branch';
+    INSERT INTO messages(session_id, role, content, timestamp)
+      VALUES ('room', 'assistant', 'room history', 500),
+             ('hidden-branch', 'user', 'branch history', 400);
+  `);
+  if (hasHiddenColumn)
+    db.exec(
+      "UPDATE sessions SET hidden = 1 WHERE id IN ('room', 'hidden-branch')",
+    );
+  return db;
+}
 function assertRetained(db: Database.Database): void {
   expect(db.prepare("SELECT id FROM sessions ORDER BY id").all()).toEqual(
     ["branch", "legacy-child", "native-child", "other", "reset"].map((id) => ({
@@ -160,6 +185,89 @@ afterEach(() => {
   closeDbConnection();
   for (const db of databases.splice(0)) db.close();
   rmSync(testHome, { recursive: true, force: true });
+});
+
+describe("native hidden-session visibility", () => {
+  // @lat: [[sidebar-navigation#Conversations, not child sessions#Native hidden visibility]]
+  it.each([false, true])(
+    "filters local lists and cache before pagination when hidden exists: %s",
+    (hasHiddenColumn) => {
+      const db = seedNativeVisibility("work", hasHiddenColumn);
+      const other = seedNativeVisibility("default", false);
+      const expected = hasHiddenColumn
+        ? ["branch", "other", "parent", "reset"]
+        : ["branch", "hidden-branch", "other", "parent", "reset", "room"];
+      expect(
+        listSessions(30, 0, "work")
+          .map((row) => row.id)
+          .sort(),
+      ).toEqual(expected);
+      expect(listSessions(1, 0, "work").map((row) => row.id)).toEqual([
+        hasHiddenColumn ? "other" : "room",
+      ]);
+      expect(
+        syncSessionCache("work")
+          .map((row) => row.id)
+          .sort(),
+      ).toEqual(expected);
+      expect(listCachedSessions(1, 0, "work").map((row) => row.id)).toEqual([
+        hasHiddenColumn ? "other" : "room",
+      ]);
+      if (hasHiddenColumn) {
+        db.exec("UPDATE sessions SET hidden = 0 WHERE id = 'room'");
+        expect(syncSessionCache("work").map((row) => row.id)).toContain("room");
+        db.exec("UPDATE sessions SET hidden = 1 WHERE id = 'room'");
+        expect(syncSessionCache("work").map((row) => row.id)).not.toContain(
+          "room",
+        );
+        expect(
+          listCachedSessions(30, 0, "work").map((row) => row.id),
+        ).not.toContain("room");
+      }
+      expect(listSessions(30, 0, "default").map((row) => row.id)).toContain(
+        "room",
+      );
+      expect(
+        db
+          .prepare("SELECT content FROM messages WHERE session_id = 'room'")
+          .all(),
+      ).toEqual([{ content: "room history" }]);
+      expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+      expect(other.prepare("SELECT COUNT(*) AS n FROM sessions").get()).toEqual(
+        {
+          n: 8,
+        },
+      );
+    },
+  );
+
+  // @lat: [[sidebar-navigation#Conversations, not child sessions#SSH native hidden visibility]]
+  it.each([false, true])(
+    "executes schema-aware SSH hidden filtering without changing history: %s",
+    (hasHiddenColumn) => {
+      const db = seedNativeVisibility("_work", hasHiddenColumn);
+      seedNativeVisibility("default", false);
+      const list = (profile: string, limit = 30): string[] =>
+        (
+          remote(SSH_SESSION_LIST_SCRIPT, { profile, limit }) as Array<{
+            id: string;
+          }>
+        ).map((row) => row.id);
+      expect(list("_work").sort()).toEqual(
+        hasHiddenColumn
+          ? ["branch", "other", "parent", "reset"]
+          : ["branch", "hidden-branch", "other", "parent", "reset", "room"],
+      );
+      expect(list("_work", 1)).toEqual([hasHiddenColumn ? "other" : "room"]);
+      expect(list("default")).toContain("room");
+      expect(
+        db
+          .prepare("SELECT content FROM messages WHERE session_id = 'room'")
+          .all(),
+      ).toEqual([{ content: "room history" }]);
+      expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    },
+  );
 });
 
 describe("conversation visibility after actual deletion", () => {

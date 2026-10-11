@@ -32,9 +32,17 @@ Local lists follow the Agent's native archive flag. Archiving hides a conversati
 
 The list shows conversations. A delegated child's session belongs to the turn that spawned it, and internal sources are not chats at all, so neither is a sidebar row.
 
-[[src/main/db.ts#conversationListPredicate]] and [[src/main/session-conversation.ts#conversationPredicate]] combine native archive visibility, durable `_delegate_from` exclusion, branch/reset child classification and the internal `kanban`, `tool`, `oneshot` sources. Local listing and cache sync apply the same rule before pagination. Legacy SSH listing uses the shared SQL clauses through [[src/main/session-conversation.ts#SSH_SESSION_LIST_SCRIPT]]. Missing optional columns remain readable; malformed `model_config` is treated as lacking markers.
+[[src/main/db.ts#conversationListPredicate]] and [[src/main/session-conversation.ts#conversationPredicate]] combine native archive and hidden visibility, durable `_delegate_from` exclusion, branch/reset child classification and the internal `kanban`, `tool`, `oneshot` sources. Local listing and cache sync apply the same rule before pagination. Legacy SSH listing uses the shared SQL clauses through [[src/main/session-conversation.ts#SSH_SESSION_LIST_SCRIPT]]. Missing optional columns remain readable; malformed `model_config` is treated as lacking markers.
 
 Filtering changes list membership only; delegated history stays in the database for explicit session access. It does not depend on a separate in-chat roster feature.
+
+### Native hidden visibility
+
+Local lists and cache sync respect the Agent's `hidden` flag, including hosted-room sessions and hidden branches. Real SQLite tests preserve visible chats, legacy schemas, profile isolation, pagination and hidden history through visibility changes.
+
+### SSH native hidden visibility
+
+The actual SSH Python listing applies `hidden = 0` before pagination when the column exists. Real SQLite fixtures retain ordinary and branch conversations, legacy databases without the column and hidden messages without affecting another profile.
 
 ### Durable native provenance
 
