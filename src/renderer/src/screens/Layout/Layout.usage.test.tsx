@@ -54,19 +54,28 @@ vi.mock("../Chat/dashboardGatewayClient", () => ({
     request = gateway.request;
   },
 }));
-const editorStore = vi.hoisted(() => ({ id: "a", revision: 0 }));
+const editorStore = vi.hoisted(() => ({
+  id: "a",
+  configs: {} as Record<
+    string,
+    {
+      connectionId: string;
+      mode: "remote";
+      remoteUrl: string;
+      remoteAuthMode: "token";
+      remoteChatTransport: "dashboard";
+    }
+  >,
+}));
 vi.mock("../../../../main/config", () => ({
   getActiveConnection: () => ({ connectionId: editorStore.id }),
-  getConnectionConfig: () => ({
-    mode: "remote",
-    remoteUrl: `https://${editorStore.id}.test`,
-  }),
+  getConnectionConfig: (id = editorStore.id) => editorStore.configs[id],
 }));
 vi.mock("../../../../main/utils", () => ({
   getActiveProfileNameSync: () => "default",
 }));
 vi.mock("../../../../main/provider-request-target", () => ({
-  providerTargetRevision: () => String(editorStore.revision),
+  providerTargetRevision: (config: unknown) => JSON.stringify(config),
 }));
 import Layout from "./Layout";
 
@@ -108,11 +117,12 @@ function fixture(): {
     remoteAuthMode: "token" as const,
     remoteChatTransport: "dashboard" as const,
   };
+  editorStore.configs.a = config;
   const listeners = new Set<(value: typeof config) => void>();
   const change = (id: string, url = `https://${id}.test`): void => {
     config = { ...config, connectionId: id, remoteUrl: url };
     editorStore.id = id;
-    editorStore.revision++;
+    editorStore.configs[id] = config;
     scope.change(id);
     listeners.forEach((callback) => callback(config));
   };
@@ -137,7 +147,19 @@ function fixture(): {
       .fn()
       .mockResolvedValue([row("default", true), row("work")]),
     setActiveProfile: vi.fn().mockResolvedValue(true),
-    getConnectionConfig: vi.fn().mockImplementation(async () => config),
+    // Main permits explicit-ID provider authority for retained Chats, while
+    // the real profile-editor capture above still requires selected ownership.
+    getProviderRequestTarget: vi
+      .fn()
+      .mockImplementation(async (id: string) => ({
+        ...editorStore.configs[id],
+        revision: JSON.stringify(editorStore.configs[id]),
+      })),
+    getConnectionConfig: vi
+      .fn()
+      .mockImplementation(
+        async (id = editorStore.id) => editorStore.configs[id],
+      ),
     isRemoteOnlyMode: vi.fn().mockResolvedValue(true),
     getModelConfig: vi
       .fn()
@@ -146,6 +168,7 @@ function fixture(): {
     discoverModels: vi.fn().mockResolvedValue({ models: [], status: "ok" }),
     getConfig: vi.fn().mockResolvedValue(null),
     getConfigHealth: vi.fn().mockResolvedValue(null),
+    sendMessage: vi.fn().mockResolvedValue(null),
     getSessionUsage: vi.fn().mockResolvedValue(null),
     getSessionMessages: vi.fn().mockResolvedValue([
       { kind: "user", id: 1, content: "saved conversation", timestamp: 1 },
@@ -198,7 +221,7 @@ function fixture(): {
 }
 beforeEach(() => {
   editorStore.id = "a";
-  editorStore.revision = 0;
+  editorStore.configs = {};
   localStorage.clear();
   localStorage.setItem("hermes-follow-x-dismissed", "true");
   gateway.clients.length = 0;
@@ -432,5 +455,57 @@ it("discards late same-ID metadata and keeps connection/profile totals on their 
   fireEvent.click(screen.getAllByText("agents.chat")[1]);
   await waitFor(() =>
     expect(document.querySelector(".status-usage")).toBeNull(),
+  );
+});
+
+// @lat: [[model-context#Tests#Refused prompts do not add usage]]
+it("retains confirmed totals and the composer when a pending authority check refuses a prompt", async () => {
+  const { api, change } = fixture();
+  api.getSessionUsage.mockResolvedValue({
+    promptTokens: 1300,
+    completionTokens: 250,
+    totalTokens: 1550,
+  });
+  render(<Layout connectionId="a" />);
+  await resume();
+  await send();
+  await complete(1300, 250);
+  await waitFor(() =>
+    expect(
+      document.querySelector(".status-usage")?.getAttribute("title"),
+    ).toContain("1,550 total"),
+  );
+  const messages = document.querySelectorAll(".chat-message-user").length;
+  const authority = deferred<null>();
+  api.getProviderRequestTarget.mockReturnValueOnce(authority.promise);
+  await act(async () => change("a"));
+  gateway.request.mockClear();
+  const box = screen.getByPlaceholderText("chat.typeMessage");
+  fireEvent.change(box, { target: { value: "keep this unsent prompt" } });
+  fireEvent.click(screen.getByRole("button", { name: "chat.send" }));
+  expect(box).toHaveValue("keep this unsent prompt");
+  expect(gateway.request).not.toHaveBeenCalledWith(
+    "prompt.submit",
+    expect.anything(),
+  );
+  await act(async () => authority.resolve(null));
+  await screen.findByRole("alert");
+  expect(box).toHaveValue("keep this unsent prompt");
+  expect(document.querySelectorAll(".chat-message-user")).toHaveLength(
+    messages,
+  );
+  expect(gateway.request).not.toHaveBeenCalledWith(
+    "prompt.submit",
+    expect.anything(),
+  );
+  expect(api.sendMessage).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "common.stop" })).toBeNull();
+  await waitFor(() =>
+    expect(
+      document.querySelector(".status-usage")?.getAttribute("title"),
+    ).toContain("1,550 total"),
+  );
+  expect(document.querySelector(".status-usage")?.textContent).toContain(
+    "↑1.3k ↓250",
   );
 });

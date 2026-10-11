@@ -48,6 +48,8 @@ The last confirmed row remains available while the next turn runs or metadata is
 
 Metadata requires the requested profile's own row. A missing row clears earlier metadata without falling back to another active profile or discarding the visible conversation's token totals.
 
+Restoring an already selected profile preserves concurrent Chat usage and title updates. A no-op profile transition does not replace the run with an older snapshot.
+
 [[remote-profiles#Tests#Missing profile footer cannot borrow default status]] exercises the actual Remote profile mapping through the captured footer target, including a saved name that disappears without changing Desktop's selection.
 
 ### Native Dashboard usage
@@ -67,6 +69,10 @@ A resumed conversation's metadata reply may arrive after completion. The real Ch
 ### Saved totals follow the visible scope
 
 Configuration changes discard pending saved metadata. Connection/profile switches show only the visible run's totals; retained nonselected tabs omit unavailable metadata while keeping their totals, including the same session ID on different machines.
+
+### Refused prompts do not add usage
+
+A pending authority check may refuse a prompt before dispatch. The actual composer retains the unsent text, no user turn or transport request is added, and confirmed session totals remain unchanged.
 
 ### Native cumulative counters and legacy deltas
 

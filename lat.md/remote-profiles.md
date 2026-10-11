@@ -22,6 +22,14 @@ Profile IPC validates captured targets before list, create, select, delete, appe
 
 Layout restores each connection's selected profile onto a scratch chat run using the existing [[sidebar-navigation#Profile switch and active chat]] transition. A delayed restore cannot undo a newer user choice. Remote Agents exposes list/create/select/chat; profile editing and desktop/cloud sync controls remain unavailable there. Global editor modal invalidation is documented in [[profile-editors#Profile editors#Renderer lifetime]].
 
+Request authority is invalidated on every configuration notification. Layout resets selection only when the selected connection or its recaptured opaque settings token changes. Label-only renames and unrelated edits preserve the current conversation and draft; same-scope restoration cannot switch it to a scratch run.
+
+### Native chat connection authority
+
+A main-issued private configuration and OAuth revision decides whether a notification changes an existing Chat transport. Display labels and unrelated connection edits preserve the native client, transcript and live accounting.
+
+[[src/renderer/src/screens/Chat/Chat.tsx#Chat]] captures [[src/main/provider-request-target.ts#providerTargetRevision]] without exposing keys. Pending recaptures gate prompt admission, native RPCs and replies; equal authority resumes admitted work. Changed, unavailable or superseded authority rejects old writes and stream events without falling through to Legacy. Latest-read and client generations fence delayed captures and replies, while true changes retain the existing transport reset. Registry notifications recapture each retained chat's own private revision; a different selected machine's public settings never retarget that chat. A per-client closed fence rejects buffered replies and retained RPC callbacks after a socket closes, even if its replacement has equal authority. Gated stream events retain native receipt order. A newer capture wakes superseded waiters, so an obsolete IPC reply cannot stall valid work.
+
 ### Local cloud sync boundary
 
 Automatic and manual cloud agent sync reconcile desktop files only in Local mode. Remote and SSH Agents do not mount sync controls; main rejects unsupported sync admission.
@@ -122,4 +130,80 @@ A delayed initial restore cannot reset the active profile and scratch chat after
 
 ### Failed reload keeps the shell target aligned
 
-Same-ID configuration invalidation selects a default scratch chat together with the footer fallback. A failed profile restore cannot leave the old named chat visible under the default label.
+Changed settings on the selected connection select a default scratch chat together with the footer fallback. A failed profile restore cannot leave the old named chat visible under the default label.
+
+### Connection renames preserve the visible conversation
+
+Actual Layout resumes a named-profile conversation with an unsent draft. Selected-label and unrelated connection renames recapture unchanged authority without replacing its active run, durable session or draft.
+
+### Selected settings still reset profile restoration
+
+Changing the selected endpoint or authentication changes its opaque authority token. Actual Layout then resets the selected profile and visible scratch chat together, while old editor actions remain invalidated.
+
+### Renames during pending restoration preserve user choices
+
+A rename can invalidate an initial profile read without changing its settings scope. Fresh authority retries that read, but a newer user selection keeps ownership and cannot be undone by the retry or the old response.
+
+### Harmless connection notifications preserve native chat
+
+Actual Chat keeps its running native client, saved transcript and draft after a selected display rename or an unrelated connection notification, then accepts the continued native reply.
+
+### Private connection authority changes invalidate chat
+
+Actual main-issued HMAC revisions detect address changes, equal-length secret rotations and OAuth epochs, closing the old native client despite identical public credential lengths.
+
+### Unknown connection authority invalidates chat
+
+OAuth account changes make capture unavailable; Chat invalidates the previous native authority rather than treating an unknown revision as a harmless display edit.
+
+### Late connection capture cannot replace newer authority
+
+An old label capture resolving after secret rotation cannot close or hydrate the newly connected native runtime.
+
+### Pending label authority preserves admitted native work
+
+A deferred equal-authority read holds native writes and completion events, then releases them on the existing client after identity is proven.
+
+### Deferred private change rejects old native callbacks
+
+A deferred private change rejects captured native writes and late completions, including callbacks retained after client teardown, without dispatching a Legacy request.
+
+### Pending chat submission waits for private authority
+
+Actual Send remains undispatched during a deferred revision read. Equal authority resumes submission; changed authority rejects the obsolete action without native or Legacy dispatch.
+
+### Refused submissions retain their payload
+
+Actual Chat and composer Send, Quick Ask and typed background commands retain text and attachments after pending authority changes. Rejection reaches the composer instead of being reported as successful admission.
+
+### Refused queued submissions remain recoverable
+
+A queued prompt rejected before dispatch returns to its captured queue and reports the error. A cleared queue or changed run/profile owner cannot receive an obsolete reinsertion.
+
+### Refused action admission has no side effects
+
+Normal and side-question actions reject unavailable authority before transcript or loading effects. A rejected Dashboard-to-Legacy fallback does not dispatch and settles its own failed turn.
+
+### Handled transport admission remains accepted
+
+A handled native result stays accepted without a later authority check that could present delivered work as unsent. Legacy dispatch acknowledges immediately while existing IPC events own streamed failures.
+
+### Retained chat validates its own changed authority
+
+A notification naming another selected machine still revalidates a retained chat's own private configuration. Changed authority closes its old client; its next native request uses its own settings without falling through to Legacy.
+
+### Closed native client cannot deliver buffered replies
+
+An equal-authority reconnect cannot accept an old closed client's buffered completion or RPC callback. Pending recaptures preserve the new running prompt and do not transfer old socket ownership.
+
+### Failed retained settings cannot borrow selected mode
+
+A failed retained-chat settings read revokes admission and preserves that chat's prior mode. It cannot adopt another selected machine's Local mode, dispatch a prompt or fall through to Legacy.
+
+### Real native connection setup remains admitted
+
+The actual DashboardGatewayClient closes its previous socket before opening a new one. A synthetic WebSocket proves authority fencing permits that setup cleanup and the first native prompt without contacting a real server.
+
+### Pending native events retain receipt order
+
+Equal-authority recaptures preserve approval-before-terminal receipt order. A valid newer capture wakes waiters on the obsolete read; an earlier approval cannot become actionable after its completed turn.
