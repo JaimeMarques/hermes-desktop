@@ -254,6 +254,7 @@ import {
   remoteUpdateSessionTitle,
   type RemoteSessionConfig,
 } from "../remote-sessions";
+import { remoteGetSessionUsage } from "../remote-session-usage";
 import {
   remoteGetHermesHome,
   remoteGetHermesVersion,
@@ -2594,6 +2595,16 @@ export function registerIpcHandlers(context: IpcContext): void {
     },
   );
 
+  // Server-side token/cost totals of one session. Remote only: a local chat
+  // gets live usage events, and the totals are not stored in a form we read.
+  ipcMain.handle(
+    "get-session-usage",
+    (_event, sessionId: string, connectionId?: string, profile?: string) => {
+      const conn = sessionConnection(connectionId);
+      if (conn.mode !== "remote") return null;
+      return remoteGetSessionUsage(conn, sessionId, activeSshProfile(profile));
+    },
+  );
   ipcMain.handle(
     "get-session-messages",
     (_event, sessionId: string, connectionId?: string, profile?: string) => {

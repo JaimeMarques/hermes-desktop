@@ -973,6 +973,20 @@ const hermesAPI = {
   > =>
     ipcRenderer.invoke("list-sessions", limit, offset, connectionId, profile),
 
+  getSessionUsage: (
+    sessionId: string,
+    connectionId?: string,
+    profile?: string,
+  ): Promise<{
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    cost?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  } | null> =>
+    ipcRenderer.invoke("get-session-usage", sessionId, connectionId, profile),
+
   getSessionMessages: (
     sessionId: string,
     connectionId?: string,

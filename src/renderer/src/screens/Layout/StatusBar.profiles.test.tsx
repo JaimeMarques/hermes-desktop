@@ -1,5 +1,7 @@
 import { act, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { ProfileEditorTarget } from "../../../../shared/profile-editor-target";
+import { profileEditorFixture } from "../../test/profileEditorFixture";
 import { StatusBar } from "./StatusBar";
 
 const state = vi.hoisted(() => ({
@@ -58,10 +60,15 @@ it.each(["initial load", "selection change", "server deletion"] as const)(
       skill_count: 9,
     };
     state.request.mockResolvedValue({ profiles: [defaultRow] });
-    const listProfiles = vi.fn(async () => remoteListProfiles(state.savedName));
+    const scope = profileEditorFixture("remote");
+    scope.change("profiles");
+    const listProfiles = vi.fn(async (target?: ProfileEditorTarget) =>
+      remoteListProfiles(target?.profile ?? state.savedName),
+    );
     Object.defineProperty(window, "hermesAPI", {
       configurable: true,
       value: {
+        ...scope.api,
         listProfiles,
         getConnectionConfig: vi.fn().mockResolvedValue(state.connection),
       },
@@ -75,7 +82,9 @@ it.each(["initial load", "selection change", "server deletion"] as const)(
         ],
       });
     }
-    const view = render(<StatusBar activeProfile={state.savedName} />);
+    const view = render(
+      <StatusBar activeProfile={state.savedName} connectionId="profiles" />,
+    );
     await act(async () => vi.advanceTimersByTimeAsync(0));
     if (transition !== "initial load") {
       expect(
@@ -84,7 +93,9 @@ it.each(["initial load", "selection change", "server deletion"] as const)(
       state.request.mockResolvedValue({ profiles: [defaultRow] });
       if (transition === "selection change") {
         state.savedName = "gone";
-        view.rerender(<StatusBar activeProfile="gone" />);
+        view.rerender(
+          <StatusBar activeProfile="gone" connectionId="profiles" />,
+        );
       }
       await act(async () =>
         vi.advanceTimersByTimeAsync(
@@ -102,5 +113,11 @@ it.each(["initial load", "selection change", "server deletion"] as const)(
       transition === "server deletion" ? "work" : "gone",
     );
     expect(listProfiles).toHaveBeenCalled();
+    expect(listProfiles).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        connectionId: "profiles",
+        profile: state.savedName,
+      }),
+    );
   },
 );

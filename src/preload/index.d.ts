@@ -681,6 +681,18 @@ interface HermesAPI {
       preview: string;
     }>
   >;
+  getSessionUsage: (
+    sessionId: string,
+    connectionId?: string,
+    profile?: string,
+  ) => Promise<{
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    cost?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  } | null>;
   getSessionMessages: (
     sessionId: string,
     connectionId?: string,
