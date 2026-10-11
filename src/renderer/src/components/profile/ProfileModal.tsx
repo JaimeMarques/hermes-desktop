@@ -25,6 +25,14 @@ import { AppModal, AppModalTitle } from "../modal/AppModal";
 import ProfileWalletPane from "./ProfileWalletPane";
 import ProfileSyncPane from "./ProfileSyncPane";
 import { OrbLoader } from "../OrbLoader";
+import { useProfileEditorTarget } from "../../hooks/useProfileEditorTarget";
+import {
+  beginProfileMemoryMutation,
+  profileMemoryRevision,
+  useProfileEditorLifetime,
+  waitForProfileMemoryMutations,
+} from "../../hooks/useProfileEditorLifetime";
+import type { ProfileEditorTarget } from "../../../../shared/profile-editor-target";
 import type { ProfileSection } from "./ProfileModalContext";
 
 /** Mirrors the entry shape returned by `window.hermesAPI.listProfiles()`. */
@@ -78,15 +86,6 @@ const PROFILE_SECTIONS: ReadonlyArray<{
   { id: "advanced", labelKey: "agents.sectionAdvanced", Icon: Settings },
 ];
 
-/** Sections whose reads and writes still touch the LOCAL profile files, so in
- *  Remote mode they would show and edit this machine's profile of the same name
- *  while the server's stays unchanged. Hidden until they use the dashboard. */
-const REMOTE_HIDDEN_SECTIONS: ReadonlySet<ProfileSection> = new Set([
-  "persona",
-  "agentMemory",
-  "sync",
-]);
-
 /**
  * Global profile detail/appearance modal (80vw × 80vh). Opened from anywhere
  * via the ProfileModalProvider's `openProfile`. Self-loads its data through
@@ -94,7 +93,27 @@ const REMOTE_HIDDEN_SECTIONS: ReadonlySet<ProfileSection> = new Set([
  * mutation so it always reflects the live profile. Notifies the opener via
  * `onChanged` / `onDeleted` so sibling lists (sidebar, Agents) stay in sync.
  */
-export default function ProfileModal({
+export default function ProfileModal(
+  props: ProfileModalProps,
+): React.JSX.Element {
+  const scope = useProfileEditorTarget(props.name);
+  if (!scope.target)
+    return scope.error ? (
+      <div role="alert">{scope.error}</div>
+    ) : (
+      <OrbLoader state="searching" size={64} />
+    );
+  return (
+    <ProfileModalEditor
+      {...props}
+      key={`${scope.target.scopeToken}:${scope.revision}`}
+      target={scope.target}
+      isCurrent={scope.isCurrent}
+    />
+  );
+}
+
+function ProfileModalEditor({
   name,
   open,
   onClose,
@@ -102,8 +121,17 @@ export default function ProfileModal({
   onChanged,
   onDeleted,
   initialSection,
-}: ProfileModalProps): React.JSX.Element {
+  target,
+  isCurrent,
+}: ProfileModalProps & {
+  target: ProfileEditorTarget;
+  isCurrent: (target: ProfileEditorTarget) => boolean;
+}): React.JSX.Element {
   const id = name;
+  const live = useProfileEditorLifetime({ target, isCurrent });
+  const memoryGeneration = useRef(0);
+  const memorySnapshotRevision = useRef(-1);
+  const writable = (): boolean => live() && target.mode !== "remote";
   const { t } = useI18n();
   const [profile, setProfile] = useState<ProfileInfo | null>(null);
   const [section, setSection] = useState<ProfileSection>(
@@ -114,31 +142,15 @@ export default function ProfileModal({
   useEffect(() => {
     if (open) setSection(initialSection ?? "profile");
   }, [open, initialSection]);
-  const [remoteMode, setRemoteMode] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    window.hermesAPI
-      .isRemoteOnlyMode()
-      .then((remote) => {
-        if (!cancelled) setRemoteMode(remote);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
-  const sections = remoteMode
-    ? PROFILE_SECTIONS.filter((s) => !REMOTE_HIDDEN_SECTIONS.has(s.id))
-    : PROFILE_SECTIONS;
-  // A deep link (or a mode change) can leave a hidden section selected.
-  const activeSection = sections.some((s) => s.id === section)
-    ? section
-    : "profile";
   const [error, setError] = useState("");
   const [memoryData, setMemoryData] = useState<MemoryData | null>(null);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [memoryError, setMemoryError] = useState("");
+  const [memoryWriting, setMemoryWriting] = useState(false);
+  const memoryPendingWrite = useRef(false);
+  const memoryRefreshAfterWrite = useRef(false);
+  const memoryLoadingRef = useRef(memoryLoading);
+  memoryLoadingRef.current = memoryLoading;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
@@ -150,13 +162,31 @@ export default function ProfileModal({
   const profileName = profile?.name;
 
   const load = useCallback(async (): Promise<void> => {
+    if (!live()) return;
+    if (target.mode === "remote") {
+      // These supported panes need the captured identity, never desktop metadata.
+      setProfile({
+        id,
+        name: id,
+        path: "",
+        isDefault: id === "default",
+        isActive: false,
+        model: "",
+        provider: "",
+        hasEnv: false,
+        hasSoul: false,
+        skillCount: 0,
+        gatewayRunning: false,
+      });
+      return;
+    }
     try {
       const list = await window.hermesAPI.listProfiles();
-      setProfile(list.find((p) => p.id === id) ?? null);
+      if (live()) setProfile(list.find((p) => p.id === id) ?? null);
     } catch {
       /* keep last-known profile */
     }
-  }, [id]);
+  }, [id, target, live]);
 
   useEffect(() => {
     load();
@@ -174,43 +204,109 @@ export default function ProfileModal({
   }, [nameEditing]);
 
   const loadMemoryData = useCallback(async (): Promise<void> => {
-    if (!profile) return;
+    if (!profile || !live()) return;
+    if (memoryPendingWrite.current) {
+      memoryRefreshAfterWrite.current = true;
+      return;
+    }
+    const request = ++memoryGeneration.current;
+    memoryLoadingRef.current = true;
+    setMemoryData(null);
     setMemoryLoading(true);
     setMemoryError("");
     try {
-      const data = await window.hermesAPI.readMemory(profile.id);
+      const revision = await waitForProfileMemoryMutations(target);
+      if (!live() || request !== memoryGeneration.current) return;
+      if (profileMemoryRevision(target) !== revision) {
+        void loadMemoryData();
+        return;
+      }
+      const data = await window.hermesAPI.readMemory(profile.id, target);
+      if (!live() || request !== memoryGeneration.current) return;
+      if (profileMemoryRevision(target) !== revision) {
+        void loadMemoryData();
+        return;
+      }
+      memorySnapshotRevision.current = revision;
       setMemoryData(data as MemoryData);
     } catch {
-      setMemoryError(t("memory.loadFailed"));
+      if (live() && request === memoryGeneration.current)
+        setMemoryError(t("memory.loadFailed"));
     } finally {
-      setMemoryLoading(false);
+      if (live() && request === memoryGeneration.current) {
+        memoryLoadingRef.current = false;
+        setMemoryLoading(false);
+      }
     }
-  }, [profile, t]);
+  }, [profile, target, live, t]);
+
+  const beginMemoryMutation = (): (() => void) | null => {
+    if (
+      !writable() ||
+      !memoryData ||
+      memoryLoadingRef.current ||
+      memoryPendingWrite.current
+    )
+      return null;
+    const finishScope = beginProfileMemoryMutation(
+      target,
+      memorySnapshotRevision.current,
+    );
+    if (!finishScope) {
+      void loadMemoryData();
+      return null;
+    }
+    memoryPendingWrite.current = true;
+    setMemoryWriting(true);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      finishScope();
+      memoryPendingWrite.current = false;
+      if (!live()) return;
+      setMemoryWriting(false);
+      if (memoryRefreshAfterWrite.current) {
+        memoryRefreshAfterWrite.current = false;
+        void loadMemoryData();
+      } else memorySnapshotRevision.current = profileMemoryRevision(target);
+    };
+  };
 
   useEffect(() => {
     setMemoryData(null);
     setMemoryError("");
-  }, [id]);
+  }, [id, target, live]);
 
   useEffect(() => {
     if (
-      activeSection === "agentMemory" &&
+      section === "agentMemory" &&
       profile &&
       !memoryData &&
-      !memoryLoading
+      !memoryLoading &&
+      !memoryError
     ) {
       void loadMemoryData();
     }
-  }, [activeSection, loadMemoryData, memoryData, memoryLoading, profile]);
+  }, [
+    loadMemoryData,
+    memoryData,
+    memoryLoading,
+    memoryError,
+    profile,
+    section,
+  ]);
 
   const afterMutation = useCallback(async (): Promise<void> => {
     await load();
-    onChanged?.();
-  }, [load, onChanged]);
+    if (live()) onChanged?.();
+  }, [load, onChanged, live]);
 
   async function handlePickColor(color: string): Promise<void> {
+    if (!writable()) return;
     setProfile((cur) => (cur ? { ...cur, color } : cur));
     const result = await window.hermesAPI.setProfileColor(id, color);
+    if (!live()) return;
     if (!result.success) setError(result.error || t("agents.appearanceFailed"));
     await afterMutation();
   }
@@ -218,28 +314,33 @@ export default function ProfileModal({
   async function handleAvatarFile(
     e: React.ChangeEvent<HTMLInputElement>,
   ): Promise<void> {
+    if (!writable()) return;
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file
     if (!file) return;
     try {
       const dataUrl = await fileToAvatarDataUrl(file);
+      if (!writable()) return;
       const result = await window.hermesAPI.setProfileAvatar(id, dataUrl);
+      if (!live()) return;
       if (!result.success)
         setError(result.error || t("agents.uploadImageFailed"));
     } catch {
-      setError(t("agents.uploadImageFailed"));
+      if (live()) setError(t("agents.uploadImageFailed"));
     }
     await afterMutation();
   }
 
   async function handleRemoveAvatar(): Promise<void> {
+    if (!writable()) return;
     const result = await window.hermesAPI.removeProfileAvatar(id);
+    if (!live()) return;
     if (!result.success) setError(result.error || t("agents.appearanceFailed"));
     await afterMutation();
   }
 
   async function handleSaveName(): Promise<void> {
-    if (!profile || nameSaving) return;
+    if (!profile || nameSaving || !writable()) return;
     const currentName = profile.name;
     if (skipNextNameBlurSaveRef.current) {
       skipNextNameBlurSaveRef.current = false;
@@ -258,6 +359,7 @@ export default function ProfileModal({
         profile.id,
         nameDraft,
       );
+      if (!live()) return;
       if (!result.success) {
         setError(result.error || t("common.updateFailed"));
         setNameEditing(true);
@@ -266,10 +368,11 @@ export default function ProfileModal({
       setNameEditing(false);
       await afterMutation();
     } catch {
+      if (!live()) return;
       setError(t("common.updateFailed"));
       setNameEditing(true);
     } finally {
-      setNameSaving(false);
+      if (live()) setNameSaving(false);
     }
   }
 
@@ -286,12 +389,13 @@ export default function ProfileModal({
   }
 
   async function handleDelete(): Promise<void> {
-    if (deleting) return;
+    if (deleting || !writable()) return;
     setDeleting(true);
     setConfirmDelete(false);
     setError("");
     try {
       const result = await window.hermesAPI.deleteProfile(id);
+      if (!live()) return;
       if (result.success) {
         onDeleted?.(id);
         onChanged?.();
@@ -300,9 +404,9 @@ export default function ProfileModal({
         setError(result.error || t("agents.deleteFailed"));
       }
     } catch {
-      setError(t("agents.deleteFailed"));
+      if (live()) setError(t("agents.deleteFailed"));
     } finally {
-      setDeleting(false);
+      if (live()) setDeleting(false);
     }
   }
 
@@ -347,6 +451,12 @@ export default function ProfileModal({
       ]
     : [];
   const agentName = profile?.name || id;
+  const visibleSection =
+    target.mode === "remote" &&
+    section !== "persona" &&
+    section !== "agentMemory"
+      ? "persona"
+      : section;
 
   return (
     <AppModal
@@ -378,12 +488,17 @@ export default function ProfileModal({
         </div>
         {profile && (
           <nav className="profile-modal-nav" aria-label={t("agents.title")}>
-            {sections.map((s) => (
+            {PROFILE_SECTIONS.filter(
+              (s) =>
+                target.mode !== "remote" ||
+                s.id === "persona" ||
+                s.id === "agentMemory",
+            ).map((s) => (
               <button
                 key={s.id}
                 type="button"
                 className={`profile-modal-nav-item ${
-                  activeSection === s.id ? "active" : ""
+                  visibleSection === s.id ? "active" : ""
                 }`}
                 onClick={() => setSection(s.id)}
               >
@@ -409,7 +524,7 @@ export default function ProfileModal({
 
         {profile ? (
           <div className="profile-modal-content">
-            {activeSection === "profile" && (
+            {visibleSection === "profile" && (
               <div className="profile-modal-pane">
                 <div className="profile-modal-identity">
                   <div className="profile-modal-avatar-wrap">
@@ -536,41 +651,59 @@ export default function ProfileModal({
               </div>
             )}
 
-            {activeSection === "persona" && (
+            {visibleSection === "persona" && (
               <div className="profile-modal-pane profile-modal-memory-pane">
                 <div className="memory-soul-tab">
-                  <Soul profile={profile.id} />
+                  <Soul
+                    profile={profile.id}
+                    allowReset={target.mode !== "remote"}
+                  />
                 </div>
               </div>
             )}
 
-            {activeSection === "agentMemory" && (
+            {visibleSection === "agentMemory" && (
               <div className="profile-modal-pane profile-modal-memory-pane">
                 {memoryLoading && !memoryData ? (
                   <div className="profile-modal-loading">
                     <OrbLoader state="searching" size={64} />
                   </div>
+                ) : memoryData?.contentUnavailable ? (
+                  <div role="note" className="memory-error">
+                    Memory contents are unavailable from this server. View
+                    memories on the server.
+                  </div>
                 ) : memoryData ? (
-                  <MemoryEntries
-                    entries={memoryData.memory.entries}
-                    profile={profile.id}
-                    onRefresh={loadMemoryData}
-                  />
+                  <fieldset
+                    disabled={
+                      target.mode === "remote" || memoryWriting || memoryLoading
+                    }
+                    style={{ border: 0, padding: 0 }}
+                  >
+                    <MemoryEntries
+                      entries={memoryData.memory.entries}
+                      profile={profile.id}
+                      target={target}
+                      isCurrent={isCurrent}
+                      onRefresh={loadMemoryData}
+                      onMutationStart={beginMemoryMutation}
+                    />
+                  </fieldset>
                 ) : memoryError ? (
                   <div className="memory-error">{memoryError}</div>
                 ) : null}
               </div>
             )}
 
-            {activeSection === "wallet" && (
+            {visibleSection === "wallet" && (
               <ProfileWalletPane profile={profile.id} />
             )}
 
-            {activeSection === "sync" && (
+            {visibleSection === "sync" && (
               <ProfileSyncPane profile={profile.id} />
             )}
 
-            {activeSection === "advanced" && (
+            {visibleSection === "advanced" && (
               <div className="profile-modal-pane">
                 {profile.isDefault ? (
                   <p className="profile-modal-danger-info">
