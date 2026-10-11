@@ -17,7 +17,6 @@ vi.mock("../../components/settings/SettingsModalContext", () => ({
 vi.mock("../../components/profile/ProfileModalContext", () => ({
   useProfileModal: () => ({ openProfile: vi.fn() }),
 }));
-vi.mock("./ActiveSessionsBar", () => ({ ActiveSessionsBar: () => null }));
 vi.mock("./SidebarRecentSessions", () => ({
   default: ({ onSelect }: { onSelect: (id: string) => void }) => (
     <button onClick={() => onSelect("saved-a")}>Resume saved chat</button>
@@ -54,6 +53,20 @@ vi.mock("../Chat/dashboardGatewayClient", () => ({
     }
     request = gateway.request;
   },
+}));
+const editorStore = vi.hoisted(() => ({ id: "a", revision: 0 }));
+vi.mock("../../../../main/config", () => ({
+  getActiveConnection: () => ({ connectionId: editorStore.id }),
+  getConnectionConfig: () => ({
+    mode: "remote",
+    remoteUrl: `https://${editorStore.id}.test`,
+  }),
+}));
+vi.mock("../../../../main/utils", () => ({
+  getActiveProfileNameSync: () => "default",
+}));
+vi.mock("../../../../main/provider-request-target", () => ({
+  providerTargetRevision: () => String(editorStore.revision),
 }));
 import Layout from "./Layout";
 
@@ -98,11 +111,22 @@ function fixture(): {
   const listeners = new Set<(value: typeof config) => void>();
   const change = (id: string, url = `https://${id}.test`): void => {
     config = { ...config, connectionId: id, remoteUrl: url };
+    editorStore.id = id;
+    editorStore.revision++;
     scope.change(id);
     listeners.forEach((callback) => callback(config));
   };
   const api: Record<string, ReturnType<typeof vi.fn>> = {
     ...scope.api,
+    // Exercise main's authority at runtime without importing its Electron
+    // ambient globals into the renderer's TypeScript compilation.
+    getProfileEditorTarget: vi
+      .fn()
+      .mockImplementation(async (profile?: string, id?: string) =>
+        (
+          await import("../../../../main/" + "profile-editor-target")
+        ).captureProfileEditorTarget(profile, id),
+      ),
     onConnectionConfigChanged: vi
       .fn()
       .mockImplementation((callback: (value: typeof config) => void) => {
@@ -173,6 +197,8 @@ function fixture(): {
   return { scope, api, change };
 }
 beforeEach(() => {
+  editorStore.id = "a";
+  editorStore.revision = 0;
   localStorage.clear();
   localStorage.setItem("hermes-follow-x-dismissed", "true");
   gateway.clients.length = 0;
@@ -224,7 +250,7 @@ async function resume(): Promise<void> {
   fireEvent.click(
     await screen.findByRole("button", { name: "Resume saved chat" }),
   );
-  await screen.findByText("saved conversation");
+  await screen.findAllByText("saved conversation");
 }
 async function send(): Promise<void> {
   const boxes = screen.getAllByRole("textbox");
@@ -360,6 +386,30 @@ it("discards late same-ID metadata and keeps connection/profile totals on their 
   await waitFor(() =>
     expect(api.getSessionUsage).toHaveBeenCalledWith("saved-a", "b", "default"),
   );
+  await waitFor(() =>
+    expect(document.querySelector(".status-usage")?.textContent).toContain(
+      "↑40 ↓5",
+    ),
+  );
+  // The real editor capture refuses a retained nonselected connection; the
+  // footer must keep its totals without painting the selected machine's metadata.
+  api.listProfiles.mockClear();
+  fireEvent.keyDown(window, { ctrlKey: true, code: "Digit1" });
+  await waitFor(() =>
+    expect(document.querySelector(".status-usage")?.textContent).toContain(
+      "↑20 ↓3",
+    ),
+  );
+  await waitFor(() =>
+    expect(api.getProfileEditorTarget).toHaveBeenCalledWith("default", "a"),
+  );
+  expect(document.querySelector(".status-strong")).toBeNull();
+  expect(
+    api.listProfiles.mock.calls.some(
+      ([target]) => target?.connectionId === "a",
+    ),
+  ).toBe(false);
+  fireEvent.keyDown(window, { ctrlKey: true, code: "Digit2" });
   await waitFor(() =>
     expect(document.querySelector(".status-usage")?.textContent).toContain(
       "↑40 ↓5",

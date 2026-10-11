@@ -134,8 +134,8 @@ function Layout({
     height: 0,
   });
 
-  const currentSessionId =
-    runs.find((r) => r.runId === activeRunId)?.sessionId ?? null;
+  const activeRun = runs.find((r) => r.runId === activeRunId);
+  const currentSessionId = activeRun?.sessionId ?? null;
 
   const loadingSessionIds = useMemo(
     () => deriveLoadingSessionIds(runs),
@@ -1052,13 +1052,17 @@ function Layout({
         </main>
       </div>
       <StatusBar
-        connectionId={connectionId}
-        activeProfile={activeProfile}
-        sessionUsage={
+        connectionId={
           view === "chat"
-            ? (runs.find((r) => r.runId === activeRunId)?.usage ?? null)
-            : null
+            ? (activeRun?.connectionId ?? connectionId)
+            : connectionId
         }
+        activeProfile={
+          view === "chat"
+            ? (activeRun?.profile ?? activeProfile)
+            : activeProfile
+        }
+        sessionUsage={view === "chat" ? (activeRun?.usage ?? null) : null}
       />
     </div>
   );

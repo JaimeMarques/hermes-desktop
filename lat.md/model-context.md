@@ -44,7 +44,7 @@ The bottom status bar shows the visible chat's context fill and token totals, sc
 
 An idle session-row read captures its live counter baseline at admission. Starting or completing a turn invalidates pending reads; a late response cannot prove which turn the row included.
 
-The last confirmed row remains available while the next turn runs or metadata is unavailable. [[src/renderer/src/screens/Layout/sessionUsage.ts#combineUsageTotals]] adds only subsequent live gains. A connection/profile/config revision excludes both old live counters and saved metadata immediately. The status bar reads its model, mode and skill metadata through the same captured profile-editor target as the shell, rejecting superseded poll replies.
+The last confirmed row remains available while the next turn runs or metadata is unavailable. [[src/renderer/src/screens/Layout/sessionUsage.ts#combineUsageTotals]] adds only subsequent live gains. A connection/profile/config revision excludes both old live counters and saved metadata immediately. The status bar reads model, mode and skill metadata through a captured profile-editor target, rejecting superseded poll replies. A retained tab on a nonselected connection keeps its totals but omits unavailable connection metadata; it cannot claim the selected machine's state or imply an unknown gateway is offline.
 
 ### Native Dashboard usage
 
@@ -62,7 +62,7 @@ A resumed conversation's metadata reply may arrive after completion. The real Ch
 
 ### Saved totals follow the visible scope
 
-Same-ID configuration changes discard pending saved metadata. Switching connections or profiles displays only the visible run's totals, including resuming the same session ID on another connection.
+Configuration changes discard pending saved metadata. Connection/profile switches show only the visible run's totals; retained nonselected tabs omit unavailable metadata while keeping their totals, including the same session ID on different machines.
 
 ### Native cumulative counters and legacy deltas
 

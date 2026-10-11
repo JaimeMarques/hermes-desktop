@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ProfileEditorTarget } from "../../../../shared/profile-editor-target";
 import { formatSessionUsage, type SessionUsage } from "./sessionUsage";
 import { useProfileEditorTarget } from "../../hooks/useProfileEditorTarget";
 
@@ -26,11 +27,15 @@ export function StatusBar({
   /** Token usage of the visible chat session; omitted when not on the chat tab. */
   sessionUsage?: SessionUsage | null;
 }): React.JSX.Element {
-  const [info, setInfo] = useState<StatusInfo | null>(null);
+  const [loadedInfo, setInfo] = useState<
+    (StatusInfo & { target: ProfileEditorTarget }) | null
+  >(null);
   const { target, isCurrent, revision } = useProfileEditorTarget(
     activeProfile,
     connectionId,
   );
+
+  const info = target && loadedInfo?.target === target ? loadedInfo : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +53,7 @@ export function StatusBar({
         profiles.find((p) => p.isActive);
       if (!active) return;
       setInfo({
+        target,
         mode: target.mode,
         gatewayRunning: active?.gatewayRunning ?? false,
         model: active?.model ?? "",
@@ -70,38 +76,40 @@ export function StatusBar({
   return (
     <footer className="status-bar" aria-label="Status">
       <div className="status-bar-group">
-        <span
-          className={`status-dot ${info?.gatewayRunning ? "online" : "offline"}`}
-          aria-hidden="true"
-        />
-        <span className="status-item status-strong">
-          {info?.gatewayRunning ? "gateway" : "offline"}
-        </span>
-        <span className="status-sep" aria-hidden="true">
-          &middot;
-        </span>
-        {info && <span className="status-item">{info.mode}</span>}
-        {info?.model ? (
+        {info && (
           <>
+            <span
+              className={`status-dot ${info.gatewayRunning ? "online" : "offline"}`}
+              aria-hidden="true"
+            />
+            <span className="status-item status-strong">
+              {info.gatewayRunning ? "gateway" : "offline"}
+            </span>
             <span className="status-sep" aria-hidden="true">
               &middot;
             </span>
-            <span className="status-item">{info.model}</span>
-          </>
-        ) : null}
-        {info ? (
-          <>
+            <span className="status-item">{info.mode}</span>
+            {info.model && (
+              <>
+                <span className="status-sep" aria-hidden="true">
+                  &middot;
+                </span>
+                <span className="status-item">{info.model}</span>
+              </>
+            )}
             <span className="status-sep" aria-hidden="true">
               &middot;
             </span>
             <span className="status-item">{info.skillCount} skills</span>
           </>
-        ) : null}
+        )}
         {usageDisplay ? (
           <>
-            <span className="status-sep" aria-hidden="true">
-              &middot;
-            </span>
+            {info && (
+              <span className="status-sep" aria-hidden="true">
+                &middot;
+              </span>
+            )}
             <span
               className={`status-item status-usage${usageDisplay.warn ? " status-usage-warn" : ""}`}
               title={usageDisplay.title}
