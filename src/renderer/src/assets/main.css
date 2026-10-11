@@ -11158,6 +11158,7 @@ body:has(.shell-vibrant),
   font-size: 12px;
 }
 .pet-settings-controls {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;

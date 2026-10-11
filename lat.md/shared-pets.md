@@ -48,6 +48,8 @@ Pet controls use desktop-compatible forms, preserve slow authoritative gallery r
 
 Generated pets are renamed with an in-app form; failed RPCs preserve the entered name for retry. Covered by [[src/renderer/src/components/pet/PetSettings.test.tsx]].
 
+Pet control rows use their own flex layout outside the settings subgrid, keeping labels, switches and sliders readable in a short window. Actual Chromium settings-dialog acceptance covers rename errors, retries, and composer-independent scrolling.
+
 ### Slow online gallery
 
 Ordinary polls wait through the entire local and online gallery request, while explicit changes and mutations can supersede it. Covered by [[src/renderer/src/components/pet/PetSettings.test.tsx]].
