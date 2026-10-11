@@ -23,16 +23,18 @@ export function StatusBar({
 
   useEffect(() => {
     let cancelled = false;
+    setInfo(null);
     async function load(): Promise<void> {
       const [profiles, conn] = await Promise.all([
         window.hermesAPI.listProfiles().catch(() => []),
         window.hermesAPI.getConnectionConfig().catch(() => null),
       ]);
       if (cancelled) return;
-      const active =
-        profiles.find((p) => p.id === activeProfile) ??
-        profiles.find((p) => p.isActive);
-      if (!active && !conn) return; // keep last-known on a transient failure
+      const active = profiles.find((p) => p.id === activeProfile);
+      if (!active) {
+        setInfo(null);
+        return;
+      }
       setInfo({
         mode: conn?.mode ?? "local",
         gatewayRunning: active?.gatewayRunning ?? false,
@@ -55,33 +57,33 @@ export function StatusBar({
   return (
     <footer className="status-bar" aria-label="Status">
       <div className="status-bar-group">
-        <span
-          className={`status-dot ${info?.gatewayRunning ? "online" : "offline"}`}
-          aria-hidden="true"
-        />
-        <span className="status-item status-strong">
-          {info?.gatewayRunning ? "gateway" : "offline"}
-        </span>
-        <span className="status-sep" aria-hidden="true">
-          &middot;
-        </span>
-        <span className="status-item">{info?.mode ?? "local"}</span>
-        {info?.model ? (
+        {info && (
           <>
+            <span
+              className={`status-dot ${info.gatewayRunning ? "online" : "offline"}`}
+              aria-hidden="true"
+            />
+            <span className="status-item status-strong">
+              {info.gatewayRunning ? "gateway" : "offline"}
+            </span>
             <span className="status-sep" aria-hidden="true">
               &middot;
             </span>
-            <span className="status-item">{info.model}</span>
-          </>
-        ) : null}
-        {info ? (
-          <>
+            <span className="status-item">{info.mode}</span>
+            {info.model && (
+              <>
+                <span className="status-sep" aria-hidden="true">
+                  &middot;
+                </span>
+                <span className="status-item">{info.model}</span>
+              </>
+            )}
             <span className="status-sep" aria-hidden="true">
               &middot;
             </span>
             <span className="status-item">{info.skillCount} skills</span>
           </>
-        ) : null}
+        )}
       </div>
       <div className="status-bar-group status-bar-hints">
         <span className="status-item">
