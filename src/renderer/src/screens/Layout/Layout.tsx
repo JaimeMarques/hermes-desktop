@@ -15,9 +15,11 @@ import {
   cycleRunId,
   runIdAtOrdinal,
   loadingSessionIds as deriveLoadingSessionIds,
+  createdSessionIds as deriveCreatedSessionIds,
 } from "./chatRuns";
 import { ActiveSessionsBar } from "./ActiveSessionsBar";
 import { StatusBar } from "./StatusBar";
+import { useRemoteOnlyMode } from "./useRemoteOnlyMode";
 import Sessions from "../Sessions/Sessions";
 import Agents from "../Agents/Agents";
 import Discover from "../Discover/Discover";
@@ -137,6 +139,10 @@ function Layout({
   const loadingSessionIds = useMemo(
     () => deriveLoadingSessionIds(runs),
     [runs],
+  );
+  const createdSessionIds = useMemo(
+    () => deriveCreatedSessionIds(runs, connectionId, activeProfile),
+    [runs, connectionId, activeProfile],
   );
 
   const updateSidebarScrollbar = useCallback((visible: boolean) => {
@@ -270,7 +276,7 @@ function Layout({
     () => new Set<View>(["chat"]),
   );
   // Remote-only mode — SSH tunnel has full access; only pure HTTP remote mode restricts screens
-  const [remoteMode, setRemoteMode] = useState(false);
+  const remoteMode = useRemoteOnlyMode(connectionId, view);
   // Set by the Capabilities screen's "Browse" actions to focus a Discover tab
   // (Skills → Community, or MCPs). The nonce re-fires Discover's effect.
   const [discoverFocus, setDiscoverFocus] = useState<{
@@ -323,11 +329,6 @@ function Layout({
     },
     [goTo],
   );
-
-  // Re-check remote mode on tab switch (picks up Settings changes)
-  useEffect(() => {
-    window.hermesAPI.isRemoteOnlyMode().then(setRemoteMode);
-  }, [view]);
 
   // Restore the last-activated profile on launch. The main process persists it
   // in ~/.hermes/active_profile (via `hermes profile use`), so the desktop
@@ -756,6 +757,7 @@ function Layout({
                   activeProfile={activeProfile}
                   currentSessionId={currentSessionId}
                   loadingSessionIds={loadingSessionIds}
+                  createdSessionIds={createdSessionIds}
                   resumingSessionId={resumingSessionId}
                   onSelect={handleResumeSession}
                   onSessionDeleted={(id) => {
@@ -940,15 +942,13 @@ function Layout({
 
           {visitedViews.has("discover") && (
             <div style={paneStyle("discover")}>
-              {remoteMode ? (
-                <RemoteNotice feature="Discover" />
-              ) : (
-                <Discover
-                  profile={activeProfile}
-                  visible={view === "discover"}
-                  focusKind={discoverFocus ?? undefined}
-                />
-              )}
+              <Discover
+                key={connectionId}
+                browseOnly={remoteMode}
+                profile={activeProfile}
+                visible={view === "discover"}
+                focusKind={discoverFocus ?? undefined}
+              />
             </div>
           )}
 
@@ -987,11 +987,13 @@ function Layout({
 
           {visitedViews.has("skills") && (
             <div style={paneStyle("skills")}>
-              {remoteMode ? (
-                <RemoteNotice feature="Skills" />
-              ) : (
-                <Skills profile={activeProfile} />
-              )}
+              {/* Keyed by connection and profile so a target
+                  switch remounts it: its cached list and selection belong to
+                  the previous target, and Uninstall would hit the new one. */}
+              <Skills
+                key={JSON.stringify([connectionId, activeProfile])}
+                profile={activeProfile}
+              />
             </div>
           )}
 
@@ -1026,21 +1028,22 @@ function Layout({
 
           {visitedViews.has("kanban") && (
             <div style={paneStyle("kanban")}>
-              {remoteMode ? (
-                <RemoteNotice feature="Kanban" />
-              ) : (
-                <Kanban profile={activeProfile} visible={view === "kanban"} />
-              )}
+              <Kanban
+                key={connectionId}
+                profile={activeProfile}
+                visible={view === "kanban"}
+                remoteMode={remoteMode}
+              />
             </div>
           )}
 
           {visitedViews.has("gateway") && (
             <div style={paneStyle("gateway")}>
-              {remoteMode ? (
-                <RemoteNotice feature="Gateway" />
-              ) : (
-                <Gateway profile={activeProfile} />
-              )}
+              <Gateway
+                key={`${connectionId}::${activeProfile}`}
+                profile={activeProfile}
+                remoteMode={remoteMode}
+              />
             </div>
           )}
           {activeRun && (
