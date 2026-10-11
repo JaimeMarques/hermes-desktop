@@ -1,3 +1,5 @@
+import type { ProfileEditorTarget } from "../shared/profile-editor-target";
+import type { ProviderRequestTarget } from "../shared/provider-target";
 import type { AppLocale } from "../shared/i18n/types";
 import type { Attachment } from "../shared/attachments";
 import type {
@@ -344,8 +346,19 @@ interface HermesAPI {
   setLocale: (locale: AppLocale) => Promise<AppLocale>;
 
   // Configuration (profile-aware)
-  getEnv: (profile?: string) => Promise<Record<string, string>>;
-  setEnv: (key: string, value: string, profile?: string) => Promise<boolean>;
+  getProviderRequestTarget: (
+    connectionId: string,
+  ) => Promise<ProviderRequestTarget>;
+  getEnv: (
+    profile?: string,
+    target?: ProviderRequestTarget,
+  ) => Promise<Record<string, string>>;
+  setEnv: (
+    key: string,
+    value: string,
+    profile?: string,
+    target?: ProfileEditorTarget | ProviderRequestTarget,
+  ) => Promise<boolean>;
   validateChatReadiness: (
     profile?: string,
     override?: { provider?: string; model?: string; baseUrl?: string },
@@ -372,8 +385,17 @@ interface HermesAPI {
     context?: Record<string, string>,
   ) => Promise<{ ok: boolean; message?: string }>;
   getConfigFixLog: (maxEntries?: number) => Promise<ConfigFixLogEntry[]>;
-  getConfig: (key: string, profile?: string) => Promise<string | null>;
-  setConfig: (key: string, value: string, profile?: string) => Promise<boolean>;
+  getConfig: (
+    key: string,
+    profile?: string,
+    target?: ProfileEditorTarget,
+  ) => Promise<string | null>;
+  setConfig: (
+    key: string,
+    value: string,
+    profile?: string,
+    target?: ProfileEditorTarget,
+  ) => Promise<boolean>;
   getHermesHome: (profile?: string) => Promise<string>;
   getModelConfig: (
     profile?: string,
@@ -521,6 +543,7 @@ interface HermesAPI {
     baseUrl?: string,
     apiKey?: string,
     profile?: string,
+    target?: ProviderRequestTarget,
   ) => Promise<{
     models: string[];
     status: "ok" | "no-key" | "error" | "unsupported" | "unknown-host";
@@ -806,7 +829,10 @@ interface HermesAPI {
   getTokenBalances: (address: string) => Promise<TokenBalancesResponse>;
 
   // Memory
-  readMemory: (profile?: string) => Promise<{
+  readMemory: (
+    profile?: string,
+    target?: ProfileEditorTarget,
+  ) => Promise<{
     memory: { content: string; exists: boolean; lastModified: number | null };
     user: { content: string; exists: boolean; lastModified: number | null };
     stats: { totalSessions: number; totalMessages: number };
@@ -815,22 +841,40 @@ interface HermesAPI {
   addMemoryEntry: (
     content: string,
     profile?: string,
+    target?: ProfileEditorTarget,
   ) => Promise<{ success: boolean; error?: string }>;
   updateMemoryEntry: (
     index: number,
     content: string,
     profile?: string,
+    target?: ProfileEditorTarget,
   ) => Promise<{ success: boolean; error?: string }>;
-  removeMemoryEntry: (index: number, profile?: string) => Promise<boolean>;
+  removeMemoryEntry: (
+    index: number,
+    profile?: string,
+    target?: ProfileEditorTarget,
+  ) => Promise<boolean>;
   writeUserProfile: (
     content: string,
     profile?: string,
+    target?: ProfileEditorTarget,
   ) => Promise<{ success: boolean; error?: string }>;
 
   // Soul
-  readSoul: (profile?: string) => Promise<string>;
-  writeSoul: (content: string, profile?: string) => Promise<boolean>;
-  resetSoul: (profile?: string) => Promise<string>;
+  getProfileEditorTarget: (
+    profile?: string,
+    connectionId?: string,
+  ) => Promise<ProfileEditorTarget>;
+  readSoul: (profile?: string, target?: ProfileEditorTarget) => Promise<string>;
+  writeSoul: (
+    content: string,
+    profile?: string,
+    target?: ProfileEditorTarget,
+  ) => Promise<boolean>;
+  resetSoul: (
+    profile?: string,
+    target?: ProfileEditorTarget,
+  ) => Promise<string>;
 
   // Tools
   getToolsets: (
@@ -939,17 +983,20 @@ interface HermesAPI {
   // engine schema (issue #367). See `CredentialPoolEntry` below.
   getCredentialPool: (
     profile?: string,
+    target?: ProviderRequestTarget,
   ) => Promise<Record<string, Array<CredentialPoolEntry>>>;
   setCredentialPool: (
     provider: string,
     entries: Array<CredentialPoolEntry>,
     profile?: string,
+    target?: ProviderRequestTarget,
   ) => Promise<boolean>;
   addCredentialPoolEntry: (
     provider: string,
     apiKey: string,
     label: string,
     profile?: string,
+    target?: ProviderRequestTarget,
   ) => Promise<Array<CredentialPoolEntry>>;
   invalidateSecretsCache: () => Promise<void>;
 
@@ -1267,7 +1314,10 @@ interface HermesAPI {
   runHermesDump: () => Promise<string>;
 
   // Memory providers
-  discoverMemoryProviders: (profile?: string) => Promise<
+  discoverMemoryProviders: (
+    profile?: string,
+    target?: ProfileEditorTarget,
+  ) => Promise<
     Array<{
       name: string;
       description: string;
