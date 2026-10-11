@@ -3,7 +3,11 @@ import type { Attachment } from "../shared/attachments";
 import { isImageMime } from "../shared/attachments";
 import { clearStagedAttachments } from "./attachment-staging";
 import { removeSessionFromCache } from "./session-cache";
-import { getDbConnection, conversationListPredicate } from "./db";
+import {
+  getDbConnection,
+  conversationListPredicate,
+  preserveHiddenSessionChildren,
+} from "./db";
 import {
   attachmentFromLocalVisionImagePath,
   deletePromptImageAttachmentsForSession,
@@ -752,21 +756,19 @@ function normalizeSessionIds(sessionIds: string[]): string[] {
 }
 
 // sessions has a self-referential FK parent_session_id -> sessions.id (set by
-// the agent for subagent runs / branches). Cached after first lookup.
-let sessionsHasParentColumn: boolean | null = null;
+// the agent for subagent runs / branches). Each profile can have a different schema.
 function hasParentSessionColumn(db: Database.Database): boolean {
-  if (sessionsHasParentColumn !== null) return sessionsHasParentColumn;
   try {
-    sessionsHasParentColumn =
+    return (
       db
         .prepare(
           "SELECT 1 FROM pragma_table_info('sessions') WHERE name = 'parent_session_id'",
         )
-        .get() != null;
+        .get() != null
+    );
   } catch {
-    sessionsHasParentColumn = false;
+    return false;
   }
-  return sessionsHasParentColumn;
 }
 
 function deleteSessionRows(db: Database.Database, sessionId: string): number {
@@ -780,6 +782,7 @@ function deleteSessionRows(db: Database.Database, sessionId: string): number {
   // violation aborts the entire transaction). Detach children rather than
   // cascade-delete so a session the user didn't select is never removed.
   if (hasParentSessionColumn(db)) {
+    preserveHiddenSessionChildren(db, sessionId);
     db.prepare(
       "UPDATE sessions SET parent_session_id = NULL WHERE parent_session_id = ?",
     ).run(sessionId);

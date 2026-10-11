@@ -32,9 +32,31 @@ Local lists follow the Agent's native archive flag. Archiving hides a conversati
 
 The list shows conversations. A delegated child's session belongs to the turn that spawned it, and internal sources are not chats at all, so neither is a sidebar row.
 
-[[src/main/db.ts#conversationListPredicate]] is the one rule both the visibility filter and the conversation filter come from: it adds `parent_session_id IS NULL` (set by the agent for subagent runs and compression continuations, whenever the column exists) and drops the internal sources the gateway's own listing drops — the same three as hermes-agent's `hermes_state_sessions.INTERNAL_LISTING_SOURCES` — so this app's sidebar agrees with every other Hermes surface about which sessions exist. [[src/main/sessions.ts#listConversationRows]] applies it before pagination.
+[[src/main/db.ts#conversationListPredicate]] and [[src/main/session-conversation.ts#conversationPredicate]] combine native archive visibility, durable `_delegate_from` exclusion, branch/reset child classification and the internal `kanban`, `tool`, `oneshot` sources. Local listing and cache sync apply the same rule before pagination. Legacy SSH listing uses the shared SQL clauses through [[src/main/session-conversation.ts#SSH_SESSION_LIST_SCRIPT]]. Missing optional columns remain readable; malformed `model_config` is treated as lacking markers.
 
-Live children stay visible where they belong: the in-chat roster (see [[subagents]]) renders a running child inside its parent conversation, which is how the official desktop shows the same work.
+Filtering changes list membership only; delegated history stays in the database for explicit session access. It does not depend on a separate in-chat roster feature.
+
+### Durable native provenance
+
+Native `_delegate_from` markers keep delegated sessions hidden even after parent links disappear. Marker precedence and invalid legacy JSON are verified with real SQLite.
+
+### Branch and reset conversations
+
+User-visible branch/reset children remain listable through `_branched_from`, `_reset_from` or the Agent's pre-marker parent lifecycle evidence; a parent link alone is not delegation evidence.
+
+### Local deletion and cache reconciliation
+
+Actual single/batch deletion preserves unselected child history and branch/reset rows, while list and cache reconciliation never promote previously hidden children into conversations.
+
+[[src/main/db.ts#preserveHiddenSessionChildren]] records the classification of hidden legacy children in a desktop-owned exclusion table before detaching them. This avoids rewriting Agent `model_config` or schema versions. Child deletion removes its exclusion through a foreign key; selected-profile isolation and messages are preserved.
+
+### SSH deletion and listing
+
+The production Python deletion and listing scripts share the native SQL rules. Disposable named-profile SQLite fixtures verify hidden-child retention, visible branches and unrelated-profile isolation.
+
+### Visibility rollback
+
+A failed parent deletion rolls back child detachment and the exclusion overlay in the same SQLite transaction, so a retry observes the original history and visibility.
 
 [[src/main/session-cache.ts#syncSessionCache]] reconciles the complete visible metadata set rather than using `started_at` as a change cursor: archive and restore do not change creation time. Cached titles are reused, and message bodies are read only to generate missing titles for newly visible rows. Successful sync replaces the cached membership, including an empty set; unavailable databases or failed reads retain the last good cache until retry. [[src/main/session-cache.ts#listCachedSessions]] remains DB-free, so an initial cached paint can be stale until sync finishes. Message history and search are unchanged.
 

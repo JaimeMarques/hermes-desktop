@@ -1,6 +1,10 @@
 import Database from "better-sqlite3";
 import { existsSync } from "fs";
 import { activeStateDbPath } from "./utils";
+import {
+  conversationPredicate,
+  listableSessionChildPredicate,
+} from "./session-conversation";
 
 let cachedDb: Database.Database | null = null;
 let cachedDbPath: string | null = null;
@@ -17,40 +21,49 @@ export function sessionVisibilityPredicate(db: Database.Database): string {
 }
 
 /**
- * Sources that are not user conversations. Mirrors hermes-agent's
- * `hermes_state_sessions.INTERNAL_LISTING_SOURCES`, which the gateway's own
- * session listing drops ("human-facing `list_sessions_rich` rows") — listing
- * them here would make this app disagree with every other Hermes surface.
- */
-const INTERNAL_LISTING_SOURCES = ["kanban", "tool", "oneshot"];
-
-/**
- * Row filter for a human-facing conversation list: the visibility rule, plus the
- * rows the backend's listing deliberately hides — delegated child sessions
- * (`parent_session_id` is set by the agent for subagent runs and compression
- * continuations) and internal, non-conversational sources.
- *
- * A conversation list is a list of conversations: a subagent's session belongs
- * to the turn that spawned it and is reached through its parent, not as a
- * separate chat. Keep this in step with the gateway so both clients show the
- * same sessions.
+ * Shared local/cache conversation rule. Native delegation markers stay hidden
+ * after parent removal; user-visible branch/reset children remain listable.
  */
 export function conversationListPredicate(db: Database.Database): string {
   const columns = db.prepare("PRAGMA table_info(sessions)").all() as Array<{
     name: string;
   }>;
-  const names = new Set(columns.map((column) => column.name));
-  const clauses = [sessionVisibilityPredicate(db)];
-  if (names.has("parent_session_id")) {
-    clauses.push("s.parent_session_id IS NULL");
-  }
-  if (names.has("source")) {
-    const sources = INTERNAL_LISTING_SOURCES.map(
-      (source) => `'${source}'`,
-    ).join(", ");
-    clauses.push(`LOWER(TRIM(COALESCE(s.source, ''))) NOT IN (${sources})`);
-  }
-  return clauses.join(" AND ");
+  const hasExclusions = !!db
+    .prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'desktop_session_conversation_exclusions'",
+    )
+    .get();
+  return conversationPredicate(
+    columns.map((column) => column.name),
+    hasExclusions,
+  );
+}
+
+/** Keep an unselected hidden child's classification when its parent is removed. */
+export function preserveHiddenSessionChildren(
+  db: Database.Database,
+  sessionId: string,
+): void {
+  const columns = db.prepare("PRAGMA table_info(sessions)").all() as Array<{
+    name: string;
+  }>;
+  const names = columns.map((column) => column.name);
+  if (!names.includes("parent_session_id")) return;
+  const rows = db
+    .prepare(
+      `SELECT s.id FROM sessions s WHERE s.parent_session_id = ? AND NOT (${listableSessionChildPredicate(names)})`,
+    )
+    .all(sessionId) as Array<{ id: string }>;
+  if (!rows.length) return;
+  // A desktop-owned overlay avoids relabeling legacy Agent model_config or
+  // changing its schema version. Foreign-key cleanup follows the child row.
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS desktop_session_conversation_exclusions (session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE)",
+  );
+  const insert = db.prepare(
+    "INSERT OR IGNORE INTO desktop_session_conversation_exclusions(session_id) VALUES (?)",
+  );
+  for (const row of rows) insert.run(row.id);
 }
 
 /**
