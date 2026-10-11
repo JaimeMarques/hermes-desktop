@@ -12,12 +12,12 @@ The gateway already relays the child's live activity to the PARENT session as `s
 
 [[src/renderer/src/screens/Chat/subagents.ts]] projects gateway payloads into display rows: `applySubagentEvent` folds the live events into one row per `subagent_id`, and `reconcileSubagentSnapshot` merges the `subagent.list` roster for windows opened mid-run.
 
-Rows are stored per session and exposed through `useSubagents`, a `useSyncExternalStore` subscription whose snapshot only changes identity when the rows change — a growing stream would otherwise re-render the composer on every chunk.
+Rows are stored per connection, profile, config revision and session and exposed through `useSubagents`, a `useSyncExternalStore` subscription whose snapshot only changes identity when the rows change — a growing stream would otherwise re-render the composer on every chunk.
 
 Two rules keep the model honest:
 
 - **A completion event is terminal.** An unrecognized or still-`running` status on `subagent.complete` renders as `failed`, never as a row that spins forever (`timeout`/`error` → failed, `cancelled`/`canceled` → interrupted).
-- **Absence is weak evidence.** `subagent.start` is relayed before the child registers in the roster registry, so an empty `subagent.list` snapshot must not retire the row a live event just created; the roster only retires a live row when it is answering about other children, and a row whose id was derived (no `subagent_id` on the wire) is never retired by absence at all.
+- **Absence is bounded evidence.** `subagent.start` can precede registry admission. Identified children survive any roster during a 10-second grace and retire after at least two successful omissions, with the final omission after the grace, including empty rosters. Newer events and successful snapshots fence older responses. Provisional rows remain event-fed and do not expose ID-bound controls.
 
 `subagent.text` (the child's per-token reply) is deliberately not relayed to the parent, so the parent-side stream is built from tool, progress and thinking lines.
 
@@ -36,3 +36,31 @@ The roster RPCs (`subagent.list`, `subagent.steer`, `subagent.interrupt`, `subag
 ## Verification
 
 Tests cover the projection, the reconciliation guards and the section behaviour: `subagents.test.ts`, `SubagentSection.test.tsx`, and the roster cases in `useDashboardChatTransport.test.tsx`, including live-captured payloads.
+
+## Recovery regressions
+
+Repaired reconciliation preserves the registration gap, removes missed completions, isolates identical IDs by target and keeps the composer accessible in short windows.
+
+### Registration gap
+
+A sibling-only roster must not remove the new child's live row while registry admission is pending. Covered by [[src/renderer/src/screens/Chat/subagents.test.ts]].
+
+### Missed completion
+
+At least two successful omissions, with the final omission after the start grace, remove a stale identified live row even when every poll is empty. Failed requests provide no absence evidence. Covered by [[src/renderer/src/screens/Chat/subagents.test.ts]].
+
+### Snapshot ordering
+
+Events received after request start and later successful snapshots take precedence over old roster replies. Covered by [[src/renderer/src/screens/Chat/subagents.test.ts]].
+
+### Target isolation
+
+A durable session ID on another connection, profile or config revision cannot share rows or controls. The transport supplies the same scope to event projection and the rendered section. Covered by [[src/renderer/src/screens/Chat/subagents.test.ts]].
+
+### Composer space
+
+The complete roster scrolls inside a 30-viewport-percent or 240-pixel height limit, keeping expanded streams and child controls within the input area instead of growing over the composer.
+
+### Control state isolation
+
+Changing conversation scope remounts expanded controls, so identical child IDs cannot carry drafts or late transcript/action results to another target. Covered by [[src/renderer/src/screens/Chat/SubagentSection.test.tsx]].

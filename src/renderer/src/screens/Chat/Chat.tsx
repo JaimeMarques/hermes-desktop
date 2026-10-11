@@ -1071,7 +1071,7 @@ function Chat({
       <div className="chat-input-area">
         <SubagentSection
           controls={dashboardTransport.subagents}
-          sessionId={hermesSessionId}
+          sessionId={dashboardTransport.subagentScopeKey}
         />
         <QueuedMessages
           messages={queuedMessages}

@@ -12,6 +12,7 @@ import type { Mock } from "vitest";
 import type { DashboardRpcEvent } from "../dashboardGatewayClient";
 import {
   getSubagents,
+  subagentScopeKey,
   resetSubagents,
   type SubagentControls,
 } from "../subagents";
@@ -1843,7 +1844,9 @@ describe("useDashboardChatTransport subagent roster", () => {
 
     // Child activity is roster state keyed by the conversation, so it reaches
     // the in-chat section...
-    const rows = getSubagents("stored-sub");
+    const rows = getSubagents(
+      subagentScopeKey(undefined, undefined, "stored-sub"),
+    );
     expect(rows).toHaveLength(1);
     expect(rows[0].goal).toBe("Audit the auth module");
     expect(rows[0].stream.map((entry) => entry.text)).toEqual([
@@ -1898,7 +1901,9 @@ describe("useDashboardChatTransport subagent roster", () => {
         type: "subagent.complete",
       });
     });
-    expect(getSubagents("stored-sub")).toHaveLength(1);
+    expect(
+      getSubagents(subagentScopeKey(undefined, undefined, "stored-sub")),
+    ).toHaveLength(1);
 
     await act(async () => {
       dashboardMock.onEvent?.({
@@ -1908,6 +1913,8 @@ describe("useDashboardChatTransport subagent roster", () => {
       });
     });
 
-    expect(getSubagents("stored-sub")).toEqual([]);
+    expect(
+      getSubagents(subagentScopeKey(undefined, undefined, "stored-sub")),
+    ).toEqual([]);
   });
 });

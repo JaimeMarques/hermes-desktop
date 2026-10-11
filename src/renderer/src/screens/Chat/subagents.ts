@@ -104,6 +104,51 @@ const EMPTY: SubagentProgress[] = [];
 
 const bySession = new Map<string, SubagentProgress[]>();
 const listeners = new Set<() => void>();
+const START_GRACE_MS = 10_000;
+let eventRevision = 0;
+interface RowEvidence {
+  revision: number;
+  lastEventAt: number;
+  misses: number;
+}
+const evidenceByScope = new Map<string, Map<string, RowEvidence>>();
+const snapshots = new Map<string, { next: number; applied: number }>();
+export interface SubagentSnapshotToken {
+  at: number;
+  eventRevision: number;
+  sequence: number;
+}
+
+export function subagentScopeKey(
+  connectionId: string | undefined,
+  profile: string | undefined,
+  sessionId: string | null | undefined,
+  connectionRevision = 0,
+): string | null {
+  return sessionId
+    ? JSON.stringify([
+        connectionId ?? "local",
+        profile?.trim() || "default",
+        connectionRevision,
+        sessionId,
+      ])
+    : null;
+}
+
+export function captureSubagentSnapshot(scope: string): SubagentSnapshotToken {
+  const state = snapshots.get(scope) ?? { next: 0, applied: 0 };
+  snapshots.set(scope, state);
+  return { at: Date.now(), eventRevision, sequence: ++state.next };
+}
+
+function rowEvidence(scope: string): Map<string, RowEvidence> {
+  let records = evidenceByScope.get(scope);
+  if (!records) {
+    records = new Map();
+    evidenceByScope.set(scope, records);
+  }
+  return records;
+}
 
 function emit(): void {
   for (const listener of listeners) listener();
@@ -359,6 +404,13 @@ export function applySubagentEvent(
   const id = idOf(payload);
   const index = rows.findIndex((item) => item.id === id);
   const prev = index >= 0 ? rows[index] : undefined;
+  if (prev && TERMINAL.has(prev.status) && event.type !== "subagent.start")
+    return true;
+  rowEvidence(sessionId).set(id, {
+    revision: ++eventRevision,
+    lastEventAt: Date.now(),
+    misses: 0,
+  });
   const next = toProgress(payload, prev, event.type);
 
   if (sameRow(prev, next)) return true;
@@ -371,30 +423,45 @@ export function applySubagentEvent(
   return true;
 }
 
-/**
- * Merge a `subagent.list` roster into the roster without replacing history:
- * live rows keep the stream a live event already appended, and rows the roster
- * no longer reports are retired — with two guards, because absence is weak
- * evidence. A child's `subagent.start` is relayed BEFORE it registers in the
- * roster registry, so an empty snapshot proves nothing; and a row with only a
- * derived id can never be matched against the roster at all.
- */
+/** Reconcile successful snapshots with a bounded start-registration grace.
+ * Events newer than a request and newer successful snapshots own the row. */
 export function reconcileSubagentSnapshot(
   sessionId: string,
   entries: SubagentSnapshotEntry[],
+  token = captureSubagentSnapshot(sessionId),
 ): void {
+  const snapshot = snapshots.get(sessionId);
+  if (!snapshot) return;
+  if (token.sequence <= snapshot.applied) return;
+  snapshot.applied = token.sequence;
   const previous = bySession.get(sessionId) ?? [];
+  const records = rowEvidence(sessionId);
   const ids = new Set(
     entries.map((entry) => str(entry.subagent_id)).filter(Boolean),
   );
-  const rosterKnowsChildren = ids.size > 0;
-  const next = previous.filter(
-    (item) =>
+  const next = previous.filter((item) => {
+    const evidence = records.get(item.id) ?? {
+      revision: 0,
+      lastEventAt: 0,
+      misses: 0,
+    };
+    records.set(item.id, evidence);
+    if (
       TERMINAL.has(item.status) ||
-      item.provisional === true ||
-      !rosterKnowsChildren ||
-      ids.has(item.id),
-  );
+      item.provisional ||
+      evidence.revision > token.eventRevision
+    )
+      return true;
+    if (ids.has(item.id)) {
+      evidence.misses = 0;
+      return true;
+    }
+    evidence.misses++;
+    if (evidence.misses < 2 || token.at - evidence.lastEventAt < START_GRACE_MS)
+      return true;
+    records.delete(item.id);
+    return false;
+  });
   let changed = next.length !== previous.length;
 
   entries.forEach((entry, position) => {
@@ -402,7 +469,12 @@ export function reconcileSubagentSnapshot(
     if (!id) return;
     const index = next.findIndex((item) => item.id === id);
     const prev = index >= 0 ? next[index] : undefined;
-    if (prev && TERMINAL.has(prev.status)) return;
+    if (
+      prev &&
+      (TERMINAL.has(prev.status) ||
+        (records.get(id)?.revision ?? 0) > token.eventRevision)
+    )
+      return;
 
     const projected = toProgress(entry as Record<string, unknown>, prev);
     // The roster records the LAST tool, not a call still executing: seed a cold
@@ -447,13 +519,22 @@ export function pruneFinishedSubagents(sessionId: string): void {
 }
 
 export function clearSessionSubagents(sessionId: string): void {
-  if (!bySession.has(sessionId)) return;
+  if (!bySession.has(sessionId)) {
+    evidenceByScope.delete(sessionId);
+    snapshots.delete(sessionId);
+    return;
+  }
   bySession.delete(sessionId);
+  evidenceByScope.delete(sessionId);
+  snapshots.delete(sessionId);
   emit();
 }
 
 /** Test seam: drop every session's roster. */
 export function resetSubagents(): void {
+  evidenceByScope.clear();
+  snapshots.clear();
+  eventRevision = 0;
   if (bySession.size === 0) return;
   bySession.clear();
   emit();

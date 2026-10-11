@@ -14,6 +14,7 @@ import { DashboardGatewayClient } from "../dashboardGatewayClient";
 import { executeSlash, type SlashExecOutcome } from "../slashExec";
 import {
   applySubagentEvent,
+  subagentScopeKey,
   isSubagentEvent,
   pruneFinishedSubagents,
   type SubagentControls,
@@ -155,6 +156,7 @@ interface UseDashboardChatTransportResult {
    * conversation the user has to hunt down in the sidebar.
    */
   subagents: SubagentControls | null;
+  subagentScopeKey: string | null;
 }
 
 interface PendingDashboardApproval {
@@ -1174,8 +1176,15 @@ export function useDashboardChatTransport({
   // durable session id once it exists, else the runtime id the events carry.
   const subagentSessionKey = useCallback(
     (): string | null =>
-      storedSessionIdRef.current ?? runtimeSessionIdRef.current,
-    [],
+      subagentScopeKey(
+        connectionId,
+        profile,
+        storedSessionIdRef.current ??
+          hermesSessionId ??
+          runtimeSessionIdRef.current,
+        connectionRevision,
+      ),
+    [connectionId, profile, connectionRevision, hermesSessionId],
   );
 
   const handleGatewayEvent = useCallback(
@@ -2289,5 +2298,6 @@ export function useDashboardChatTransport({
     getCommandCatalog,
     runBackground,
     subagents,
+    subagentScopeKey: subagentSessionKey(),
   };
 }

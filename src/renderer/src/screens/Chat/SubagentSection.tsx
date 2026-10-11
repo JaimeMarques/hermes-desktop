@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useI18n } from "../../components/useI18n";
 import {
+  captureSubagentSnapshot,
   isTerminalSubagent,
   reconcileSubagentSnapshot,
   useSubagents,
@@ -25,7 +26,7 @@ interface SubagentSectionProps {
   /** Transport-bound RPCs for the CURRENT conversation, or null when the active
    *  transport cannot serve them (the section then stays event-fed only). */
   controls: SubagentControls | null;
-  /** Durable session id of the conversation this section belongs to. */
+  /** Opaque connection/profile/revision/session scope supplied by the transport. */
   sessionId: string | null;
 }
 
@@ -238,7 +239,13 @@ function statusIcon(item: SubagentProgress): React.JSX.Element {
  * running, what each child is doing right now, and lets the user steer or stop
  * it — without the child appearing as a separate conversation.
  */
-export function SubagentSection({
+export function SubagentSection(
+  props: SubagentSectionProps,
+): React.JSX.Element {
+  return <ScopedSubagentSection key={props.sessionId} {...props} />;
+}
+
+function ScopedSubagentSection({
   controls,
   sessionId,
 }: SubagentSectionProps): React.JSX.Element | null {
@@ -262,9 +269,10 @@ export function SubagentSection({
       const target = sessionId;
       if (!current || !target || cancelled || pending || failures >= 3) return;
       pending = true;
+      const token = captureSubagentSnapshot(target);
       try {
         const entries = await current.list();
-        if (!cancelled) reconcileSubagentSnapshot(target, entries ?? []);
+        if (!cancelled) reconcileSubagentSnapshot(target, entries ?? [], token);
         failures = 0;
       } catch {
         // Older backends keep their event-fed frame; don't hot-loop a missing RPC.
@@ -349,12 +357,14 @@ export function SubagentSection({
                       ))}
                     </ul>
                   )}
-                  {controls && !isTerminalSubagent(item.status) && (
-                    <SubagentControlsRow
-                      controls={controls}
-                      subagentId={item.id}
-                    />
-                  )}
+                  {controls &&
+                    !item.provisional &&
+                    !isTerminalSubagent(item.status) && (
+                      <SubagentControlsRow
+                        controls={controls}
+                        subagentId={item.id}
+                      />
+                    )}
                   {controls && (
                     <SubagentTranscript
                       controls={controls}

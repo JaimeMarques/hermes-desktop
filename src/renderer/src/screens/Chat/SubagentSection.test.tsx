@@ -1,4 +1,10 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // The section pulls its copy through useI18n, which needs the i18next provider.
@@ -48,6 +54,86 @@ afterEach(() => {
 });
 
 describe("SubagentSection", () => {
+  // @lat: [[subagents#Recovery regressions#Control state isolation]]
+  it("drops expanded controls, drafts and late results when the conversation scope changes", async () => {
+    let finishSteer!: (value: { status: string }) => void;
+    let finishTail!: (value: {
+      available: boolean;
+      text: string;
+      truncated: boolean;
+    }) => void;
+    const oldControls = makeControls({
+      steer: vi.fn(
+        () =>
+          new Promise<{ status: string }>((resolve) => {
+            finishSteer = resolve;
+          }),
+      ),
+      tail: vi.fn(
+        () =>
+          new Promise<{ available: boolean; text: string; truncated: boolean }>(
+            (resolve) => {
+              finishTail = resolve;
+            },
+          ),
+      ),
+    });
+    const nextControls = makeControls();
+    startChild();
+    applySubagentEvent("other-scope", {
+      type: "subagent.start",
+      payload: { subagent_id: "sub-1", goal: "Other server child" },
+    });
+    const view = render(
+      <SubagentSection controls={oldControls} sessionId={SESSION} />,
+    );
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    fireEvent.change(screen.getByLabelText("chat.subagents.steerPlaceholder"), {
+      target: { value: "Old server draft" },
+    });
+    fireEvent.submit(screen.getByText("chat.subagents.steer").closest("form")!);
+    await waitFor(() =>
+      expect(oldControls.steer).toHaveBeenCalledWith(
+        "sub-1",
+        "Old server draft",
+      ),
+    );
+    view.rerender(
+      <SubagentSection controls={nextControls} sessionId="other-scope" />,
+    );
+    expect(
+      screen.queryByLabelText("chat.subagents.steerPlaceholder"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    await screen.findByText("child output line");
+    expect(
+      screen.getByLabelText("chat.subagents.steerPlaceholder"),
+    ).toHaveValue("");
+    await act(async () => {
+      finishSteer({ status: "queued" });
+      finishTail({
+        available: true,
+        text: "Old server transcript",
+        truncated: false,
+      });
+    });
+    expect(screen.queryByText("Old server transcript")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("chat.subagents.steerQueued"),
+    ).not.toBeInTheDocument();
+    expect(nextControls.steer).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("chat.subagents.steerPlaceholder"), {
+      target: { value: "New server draft" },
+    });
+    fireEvent.submit(screen.getByText("chat.subagents.steer").closest("form")!);
+    await waitFor(() =>
+      expect(nextControls.steer).toHaveBeenCalledWith(
+        "sub-1",
+        "New server draft",
+      ),
+    );
+  });
+
   it("renders nothing while the session has no children", () => {
     const { container } = render(
       <SubagentSection controls={makeControls()} sessionId={SESSION} />,

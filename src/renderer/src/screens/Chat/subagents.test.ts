@@ -1,6 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applySubagentEvent,
+  captureSubagentSnapshot,
+  subagentScopeKey,
   clearSessionSubagents,
   getSubagents,
   isSubagentEvent,
@@ -22,6 +24,7 @@ const event = (
 
 afterEach(() => {
   resetSubagents();
+  vi.useRealTimers();
 });
 
 describe("subagent event projection", () => {
@@ -352,7 +355,10 @@ describe("subagent roster reconciliation", () => {
       event("subagent.complete", { subagent_id: "done", status: "completed" }),
     );
 
-    // The roster is answering about a sibling, so the live row it omits is gone.
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 10_001);
+    reconcileSubagentSnapshot(SESSION, []);
+    // Repeated absence after the start grace retires the identified child.
     reconcileSubagentSnapshot(SESSION, [
       { goal: "Sibling", status: "running", subagent_id: "sibling" },
     ]);
@@ -582,4 +588,84 @@ describe("captured gateway frames", () => {
     expect(rows[0].stream.map((entry) => entry.text)).toEqual(["Terminal"]);
     expect(rows[1].goal).toBe("Run echo beta");
   });
+});
+
+// @lat: [[subagents#Recovery regressions#Registration gap]]
+it("keeps a new child's controls when a nonempty roster omits it during registration", () => {
+  applySubagentEvent(
+    SESSION,
+    event("subagent.start", { subagent_id: "new", goal: "New" }),
+  );
+  reconcileSubagentSnapshot(SESSION, [
+    { subagent_id: "old", goal: "Older sibling", status: "running" },
+  ]);
+  expect(getSubagents(SESSION).map((row) => row.id)).toEqual(["new", "old"]);
+});
+
+// @lat: [[subagents#Recovery regressions#Missed completion]]
+it("retires an identified child after two successful empty polls with the final poll beyond the start grace", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(100_000);
+  applySubagentEvent(
+    SESSION,
+    event("subagent.start", { subagent_id: "ended" }),
+  );
+  reconcileSubagentSnapshot(SESSION, []);
+  expect(getSubagents(SESSION)).toHaveLength(1);
+  vi.setSystemTime(110_001);
+  reconcileSubagentSnapshot(SESSION, []);
+  expect(getSubagents(SESSION)).toEqual([]);
+});
+
+// @lat: [[subagents#Recovery regressions#Snapshot ordering]]
+it("keeps events newer than a request and rejects older snapshot completions", () => {
+  const old = captureSubagentSnapshot(SESSION);
+  applySubagentEvent(
+    SESSION,
+    event("subagent.start", { subagent_id: "new", goal: "Current event" }),
+  );
+  reconcileSubagentSnapshot(
+    SESSION,
+    [{ subagent_id: "new", goal: "Old snapshot", status: "queued" }],
+    old,
+  );
+  expect(getSubagents(SESSION)[0]).toMatchObject({
+    goal: "Current event",
+    status: "running",
+  });
+  const older = captureSubagentSnapshot(SESSION);
+  const newer = captureSubagentSnapshot(SESSION);
+  reconcileSubagentSnapshot(
+    SESSION,
+    [{ subagent_id: "new", goal: "New snapshot", status: "running" }],
+    newer,
+  );
+  reconcileSubagentSnapshot(
+    SESSION,
+    [{ subagent_id: "new", goal: "Stale snapshot", status: "queued" }],
+    older,
+  );
+  expect(getSubagents(SESSION)[0].goal).toBe("New snapshot");
+});
+
+// @lat: [[subagents#Recovery regressions#Target isolation]]
+it("isolates the same durable session across connections, profiles and config revisions", () => {
+  const scopes = [
+    subagentScopeKey("a", "work", SESSION),
+    subagentScopeKey("b", "work", SESSION),
+    subagentScopeKey("a", "other", SESSION),
+    subagentScopeKey("a", "work", SESSION, 1),
+  ];
+  scopes.forEach((scope, i) =>
+    applySubagentEvent(
+      scope,
+      event("subagent.start", {
+        subagent_id: "same-child",
+        goal: `Target ${i}`,
+      }),
+    ),
+  );
+  scopes.forEach((scope, i) =>
+    expect(getSubagents(scope)[0].goal).toBe(`Target ${i}`),
+  );
 });
