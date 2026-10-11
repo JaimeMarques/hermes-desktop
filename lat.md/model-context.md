@@ -48,6 +48,10 @@ The last confirmed row remains available while the next turn runs or metadata is
 
 Metadata requires the requested profile's own row. A missing row clears earlier metadata without falling back to another active profile or discarding the visible conversation's token totals.
 
+Each captured footer target has at most one metadata read in flight. Poll ticks wait for slow reads to finish; changing the connection, profile or private authority starts a separate lifetime and rejects its old replies.
+
+Failed or missing profile reads release the polling slot. Metadata remains unknown until a later read succeeds, while conversation usage stays visible.
+
 Restoring an already selected profile preserves concurrent Chat usage and title updates. A no-op profile transition does not replace the run with an older snapshot.
 
 [[remote-profiles#Tests#Missing profile footer cannot borrow default status]] exercises the actual Remote profile mapping through the captured footer target, including a saved name that disappears without changing Desktop's selection.
@@ -89,6 +93,18 @@ Session-row reads use an immutable connection snapshot and the requested profile
 ### Status metadata rejects superseded reads
 
 The status bar requests an explicit connection/profile target and rejects a delayed old read after switching scope, preserving the new model and connection mode.
+
+### Slow status reads finish before another poll
+
+Remote and SSH metadata can take longer than several polling ticks. The actual footer accepts that slow reply, avoids overlapping reads and resumes polling after it settles.
+
+### Slow status replies cannot cross authority lifetimes
+
+Changing connection, profile or private revision starts a fresh footer read even while the old request is pending. Its late reply cannot replace the current model or gateway state.
+
+### Failed status reads release the poll slot
+
+A delayed rejected request leaves connection metadata unknown but retains conversation usage. The next poll can succeed because the in-flight slot was released.
 
 ### Missing profile metadata stays unknown
 
