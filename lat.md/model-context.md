@@ -48,6 +48,8 @@ The last confirmed row remains available while the next turn runs or metadata is
 
 Metadata requires the requested profile's own row. A missing row clears earlier metadata without falling back to another active profile or discarding the visible conversation's token totals.
 
+[[remote-profiles#Tests#Missing profile footer cannot borrow default status]] exercises the actual Remote profile mapping through the captured footer target, including a saved name that disappears without changing Desktop's selection.
+
 ### Native Dashboard usage
 
 The Agent's native `usage.input` and `usage.output` are cumulative runtime-session counters. Resume/create `info.usage` establishes the baseline before submitting a new prompt.
