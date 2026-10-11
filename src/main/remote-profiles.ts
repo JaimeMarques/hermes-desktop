@@ -1,16 +1,77 @@
-import { getConnectionConfig } from "./config";
-import { remoteDashboardRequestJson } from "./remote-api";
+import { getConnectionConfig, type ConnectionConfig } from "./config";
+import {
+  remoteDashboardRequestJson,
+  type RemoteDashboardRequestOptions,
+} from "./remote-api";
+import { providerTargetRevision } from "./provider-request-target";
+import { probeRemoteAuthMode } from "./remote-oauth";
 import { defaultColorForName } from "../shared/profileColors";
-import { readProfileMeta } from "./profile-meta";
+import { isValidProfileName, PROFILE_NAME_ERROR } from "./utils";
 import type { ProfileInfo } from "./profiles";
+import { dashboardApiUrl } from "./remote-sessions";
 
-// Remote (HTTP) mode backing for the Agents (profiles) screen. Profiles live
-// on the server: GET/POST /api/profiles. Which profile the DESKTOP has selected
-// stays a local choice (set-active-profile never touches the server's sticky
-// `hermes profile use` default), so isActive comes from the caller.
+async function profileRequest<T>(
+  connection: ConnectionConfig,
+  options?: RemoteDashboardRequestOptions,
+): Promise<T> {
+  const conn = structuredClone(connection);
+  if (conn.mode !== "remote")
+    throw new Error("Remote profiles require a Remote connection.");
+  const revision = providerTargetRevision(conn);
+  const assertCurrent = (): void => {
+    if (providerTargetRevision(conn) !== revision)
+      throw new Error(
+        "Remote authentication changed; reload before continuing.",
+      );
+  };
+  const mode =
+    conn.remoteAuthMode === "auto"
+      ? (await probeRemoteAuthMode(conn.remoteUrl)).authMode
+      : conn.remoteAuthMode;
+  assertCurrent();
+  let result: T;
+  if (mode === "token" && !conn.apiKey.trim()) {
+    // Explicit anonymous token dashboards do not use the legacy gateway /p path.
+    const url = new URL(
+      dashboardApiUrl(
+        { remoteUrl: conn.remoteUrl, apiKey: "" },
+        "/api/profiles",
+      ),
+    );
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    // Bare fetch rejects URL userinfo; preserve the supported Basic proxy boundary.
+    if (url.username || url.password) {
+      headers.Authorization = `Basic ${Buffer.from(
+        `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`,
+      ).toString("base64")}`;
+      url.username = "";
+      url.password = "";
+    }
+    const response = await fetch(url.toString(), {
+      method: options?.method || "GET",
+      headers,
+      body:
+        options?.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!response.ok)
+      throw new Error(`Remote profiles HTTP ${response.status}`);
+    result = (await response.json()) as T;
+  } else {
+    result = await remoteDashboardRequestJson<T>(
+      { ...conn, remoteAuthMode: mode },
+      "/api/profiles",
+      options,
+    );
+  }
+  assertCurrent();
+  return result;
+}
 
 interface RemoteProfileRow {
-  name?: string;
+  name: string;
   path?: string;
   is_default?: boolean;
   model?: string | null;
@@ -21,61 +82,87 @@ interface RemoteProfileRow {
   display_name?: string;
 }
 
+function validProfileRow(row: unknown): row is RemoteProfileRow {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+  const value = row as Record<string, unknown>;
+  return (
+    isValidProfileName(value.name) &&
+    ["path", "display_name"].every(
+      (key) => value[key] === undefined || typeof value[key] === "string",
+    ) &&
+    ["model", "provider"].every(
+      (key) => value[key] == null || typeof value[key] === "string",
+    ) &&
+    ["is_default", "has_env", "gateway_running"].every(
+      (key) => value[key] === undefined || typeof value[key] === "boolean",
+    ) &&
+    (value.skill_count === undefined ||
+      (typeof value.skill_count === "number" &&
+        Number.isFinite(value.skill_count) &&
+        value.skill_count >= 0))
+  );
+}
+
 export async function remoteListProfiles(
   activeName: string,
+  connection: ConnectionConfig = getConnectionConfig(),
 ): Promise<ProfileInfo[]> {
-  const data = await remoteDashboardRequestJson<{
-    profiles?: RemoteProfileRow[];
-  }>(getConnectionConfig(), "/api/profiles");
-  const rows = (data?.profiles ?? []).filter((p) => p.name);
-  const list = await Promise.all(
-    rows.map(async (p): Promise<ProfileInfo> => {
-      const name = p.name as string;
-      // Colour and avatar are desktop-only appearance, stored locally by profile
-      // name (set-profile-color / -avatar write there). Read them back so an edit
-      // is not dropped the next time this list reloads.
-      const meta = await readProfileMeta(name).catch(() => null);
-      return {
-        id: name,
-        name: p.display_name || name,
-        path: p.path || "",
-        isDefault: Boolean(p.is_default) || name === "default",
-        isActive: name === activeName,
-        model: p.model || "",
-        provider: p.provider || "auto",
-        hasEnv: Boolean(p.has_env),
-        hasSoul: false,
-        skillCount: p.skill_count ?? 0,
-        gatewayRunning: Boolean(p.gateway_running),
-        color: meta?.color || defaultColorForName(name),
-        avatar: meta?.avatar || null,
-      };
+  const data = await profileRequest<{ profiles?: RemoteProfileRow[] }>(
+    connection,
+  );
+  if (
+    !Array.isArray(data?.profiles) ||
+    data.profiles.some((p) => !validProfileRow(p))
+  )
+    throw new Error("Remote profiles response was invalid.");
+  const list = data.profiles.map(
+    (p): ProfileInfo => ({
+      id: p.name,
+      name: p.display_name || p.name,
+      path: p.path || "",
+      isDefault: p.is_default === true || p.name === "default",
+      isActive: p.name === activeName,
+      model: p.model || "",
+      provider: p.provider || "auto",
+      hasEnv: p.has_env === true,
+      hasSoul: false,
+      skillCount: typeof p.skill_count === "number" ? p.skill_count : 0,
+      gatewayRunning: p.gateway_running === true,
+      color: defaultColorForName(p.name),
+      avatar: null,
     }),
   );
-  if (list.length > 0 && !list.some((p) => p.isActive)) {
-    (list.find((p) => p.isDefault) ?? list[0]).isActive = true;
-  }
+  if (list.length && !list.some((p) => p.isActive))
+    (list.find((p) => p.isDefault) || list[0]).isActive = true;
   return list;
 }
 
 export async function remoteCreateProfile(
   name: string,
   cloneFrom: string | null,
+  connection: ConnectionConfig = getConnectionConfig(),
 ): Promise<{ success: boolean; error?: string; id?: string }> {
   const safe = name.trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(safe)) {
-    return { success: false, error: "Invalid profile name" };
-  }
+  if (
+    !isValidProfileName(safe) ||
+    (cloneFrom !== null && !isValidProfileName(cloneFrom))
+  )
+    return { success: false, error: PROFILE_NAME_ERROR };
   try {
-    await remoteDashboardRequestJson(getConnectionConfig(), "/api/profiles", {
-      method: "POST",
-      body: { name: safe, clone_from: cloneFrom || undefined },
-    });
+    const result = await profileRequest<{ ok?: boolean; name?: string }>(
+      connection,
+      {
+        method: "POST",
+        body: { name: safe, clone_from: cloneFrom || undefined },
+      },
+    );
+    if (result?.ok !== true || result.name !== safe)
+      throw new Error("The server did not confirm profile creation.");
     return { success: true, id: safe };
-  } catch (err) {
+  } catch (error) {
     return {
       success: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: error instanceof Error ? error.message : String(error),
     };
   }
 }

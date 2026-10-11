@@ -82,7 +82,7 @@ function installHermesAPI(
   Object.defineProperty(window, "hermesAPI", {
     configurable: true,
     value: {
-      ...profileEditorFixture().api,
+      ...profileEditorFixture(remote ? "remote" : "local").api,
       listProfiles: vi.fn().mockResolvedValue(profiles),
       setProfileName,
       setProfileColor: vi.fn().mockResolvedValue({ success: true }),
@@ -145,7 +145,11 @@ describe("ProfileModal name editor", () => {
     fireEvent.blur(savedInput);
 
     await waitFor(() => {
-      expect(api.setProfileName).toHaveBeenCalledWith("default", "Saved Agent");
+      expect(api.setProfileName).toHaveBeenCalledWith(
+        "default",
+        "Saved Agent",
+        expect.objectContaining({ mode: "local" }),
+      );
     });
   });
 });
@@ -200,29 +204,29 @@ describe("ProfileModal deletion failures", () => {
     );
     expect(await screen.findByText("profile is busy")).toBeInTheDocument();
     expect(deleteProfile).toHaveBeenCalledTimes(2);
-    expect(deleteProfile).toHaveBeenLastCalledWith("alpha");
+    expect(deleteProfile).toHaveBeenLastCalledWith(
+      "alpha",
+      expect.objectContaining({ mode: "local" }),
+    );
   });
 
-  it("hides the persona, memory and sync sections in Remote mode (they edit local files)", async () => {
+  it("offers only supported Remote Persona and read-only Memory panes without local metadata", async () => {
     installHermesAPI([profile()], true);
     renderModal();
-    await screen.findByRole("button", { name: "agents.sectionProfile" });
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("button", { name: "agents.sectionPersona" }),
-      ).toBeNull(),
-    );
     expect(
-      screen.queryByRole("button", { name: "agents.sectionAgentMemory" }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "agents.sectionSync" }),
-    ).toBeNull();
-    // Sections that do not touch the profile files remain.
-    expect(
-      screen.getByRole("button", { name: "agents.sectionWallet" }),
+      await screen.findByRole("button", { name: "agents.sectionPersona" }),
     ).toBeTruthy();
-    expect(window.hermesAPI.readMemory).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "agents.sectionAgentMemory" }),
+    ).toBeTruthy();
+    for (const name of [
+      "agents.sectionProfile",
+      "agents.sectionSync",
+      "agents.sectionWallet",
+      "agents.sectionAdvanced",
+    ])
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    expect(window.hermesAPI.listProfiles).not.toHaveBeenCalled();
   });
 
   it("shows every section in local mode", async () => {

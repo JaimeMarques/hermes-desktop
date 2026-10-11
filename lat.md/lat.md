@@ -48,3 +48,5 @@ This directory defines the high-level concepts, business logic, and architecture
 
 - [[profile-editors]] — captured profile targets, Soul autosave isolation, read-only Remote Memory and global modal lifetimes.
 - [[remote-providers]] — Remote provider credential ownership and supported dashboard operations.
+
+- [[remote-profiles]] — Remote profile list/create, desktop selection ownership and Agents authority lifetimes.
