@@ -2362,7 +2362,14 @@ export function useDashboardChatTransport({
               );
             if (!resumed?.session_id)
               throw new Error("session.resume returned no runtime session id");
-            runtimeSessionIdRef.current ??= resumed.session_id;
+            if (!runtimeSessionIdRef.current) {
+              if (cumulativeUsagePayload(resumed.info))
+                cumulativeUsageRef.current.set(
+                  resumed.session_id,
+                  usageFromPayload(resumed.info) || {},
+                );
+              runtimeSessionIdRef.current = resumed.session_id;
+            }
             return runtimeSessionIdRef.current;
           })();
           pending = { generation, promise, scope };

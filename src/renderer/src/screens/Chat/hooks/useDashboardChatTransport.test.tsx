@@ -1863,6 +1863,58 @@ describe("useDashboardChatTransport subagent roster", () => {
     ).toBe(false);
   });
 
+  // @lat: [[model-context#Tests#Passive roster resume retains native usage baseline]]
+  it("keeps the native usage baseline when a passive roster read resumes the saved chat", async () => {
+    dashboardMock.request.mockImplementation(async (method: string) => {
+      if (method === "session.resume")
+        return {
+          session_id: "resumed-parent",
+          info: { usage: { input: 1000, output: 200, total: 1200 } },
+        };
+      if (method === "subagent.list") return { subagents: [] };
+      if (method === "model.options")
+        return { model: "bad-model", provider: "bad-provider", providers: [] };
+      return {};
+    });
+    const setUsage = vi.fn() as SetUsageMock;
+    const api: HarnessApi = {};
+    render(
+      <Harness api={api} hermesSessionId="saved-parent" setUsage={setUsage} />,
+    );
+    await act(async () => {
+      await api.subagents!.list();
+    });
+    expect(setUsage).not.toHaveBeenCalled();
+    expect(
+      dashboardMock.request.mock.calls.some(
+        ([method]) => method === "session.send" || method === "session.create",
+      ),
+    ).toBe(false);
+    await act(async () => {
+      await api.send?.("next turn");
+      dashboardMock.onEvent?.({
+        type: "message.complete",
+        session_id: "resumed-parent",
+        payload: {
+          text: "completed",
+          usage: { input: 1300, output: 250, total: 1550 },
+        },
+      });
+    });
+    const update = setUsage.mock.calls.at(-1)?.[0];
+    expect(typeof update).toBe("function");
+    expect(typeof update === "function" ? update(null) : update).toMatchObject({
+      promptTokens: 300,
+      completionTokens: 50,
+      totalTokens: 350,
+    });
+    expect(
+      dashboardMock.request.mock.calls.filter(
+        ([method]) => method === "session.resume",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("answers empty for a new chat and does not replace a missing saved conversation", async () => {
     const api: HarnessApi = {};
     const view = render(<Harness api={api} />);

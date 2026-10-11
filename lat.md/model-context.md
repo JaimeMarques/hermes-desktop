@@ -68,6 +68,10 @@ Configuration changes discard pending saved metadata. Connection/profile switche
 
 Native usage snapshots produce per-runtime increments, deduplicate repeats and accept reset counters. Context stays exact and legacy OpenAI turn deltas retain their additive behavior.
 
+### Passive roster resume retains native usage baseline
+
+A passive roster read may reattach a live session before the next prompt. Its admitted native counters seed accounting without adding usage; completed turns then contribute only their new tokens.
+
 ### Usage metadata keeps account ownership
 
 Session-row reads use an immutable connection snapshot and the requested profile. An OAuth account revision during the read rejects its late result rather than showing another account's totals.
