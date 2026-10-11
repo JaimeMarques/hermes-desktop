@@ -41,6 +41,85 @@ afterEach(() => {
 });
 
 describe("FloatingPet", () => {
+  // @lat: [[shared-pets#Recovery regressions#Clarification waiting]]
+  it("stays waiting when loading pauses for clarification and resumes only when answered", async () => {
+    open.mockResolvedValue(client);
+    petRequest.mockResolvedValue({
+      enabled: true,
+      slug: "cat",
+      spritesheetRevision: "1",
+    });
+    refresh.mockResolvedValue({
+      enabled: true,
+      slug: "cat",
+      spritesheetBase64: "image",
+      spritesheetRevision: "1",
+    });
+    const view = render(
+      <FloatingPet
+        connectionId="machine-a"
+        profile="work"
+        runId="run-1"
+        busy
+      />,
+    );
+    await screen.findByText("cat: run");
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent("hermes-pet-activity", {
+          detail: {
+            connectionId: "machine-a",
+            profile: "work",
+            runId: "run-1",
+            type: "clarify.request",
+          },
+        }),
+      ),
+    );
+    view.rerender(
+      <FloatingPet
+        connectionId="machine-a"
+        profile="work"
+        runId="run-1"
+        busy={false}
+      />,
+    );
+    expect(screen.getByText("cat: waiting")).toBeInTheDocument();
+    vi.useFakeTimers();
+    act(() => vi.advanceTimersByTime(3000));
+    expect(screen.getByText("cat: waiting")).toBeInTheDocument();
+    view.rerender(
+      <FloatingPet
+        connectionId="machine-a"
+        profile="work"
+        runId="run-1"
+        busy
+      />,
+    );
+    expect(screen.getByText("cat: run")).toBeInTheDocument();
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent("hermes-pet-activity", {
+          detail: {
+            connectionId: "machine-a",
+            profile: "work",
+            runId: "run-1",
+            type: "message.complete",
+          },
+        }),
+      ),
+    );
+    view.rerender(
+      <FloatingPet
+        connectionId="machine-a"
+        profile="work"
+        runId="run-1"
+        busy={false}
+      />,
+    );
+    expect(screen.getByText("cat: wave")).toBeInTheDocument();
+  });
+
   // @lat: [[shared-pets#Connection edit regressions#Mascot refresh]]
   it("discards an old endpoint's pending sprite after editing a connection in place", async () => {
     let resolveOld!: (value: unknown) => void;

@@ -39,3 +39,19 @@ The floating pet closes the old socket and ignores its pending sprite after an e
 ## Settings navigation
 
 A real settings dialog opened from a conversation keeps its explicit machine and profile through pet selection, and releases its old socket when reopened for another conversation. Covered by [[src/renderer/src/components/settings/PetSettings.navigation.test.tsx]].
+
+## Recovery regressions
+
+Pet controls use desktop-compatible forms, preserve slow authoritative gallery reads, and distinguish a paused clarification from a completed turn.
+
+### Generated pet rename
+
+Generated pets are renamed with an in-app form; failed RPCs preserve the entered name for retry. Covered by [[src/renderer/src/components/pet/PetSettings.test.tsx]].
+
+### Slow online gallery
+
+Ordinary polls wait through the entire local and online gallery request, while explicit changes and mutations can supersede it. Covered by [[src/renderer/src/components/pet/PetSettings.test.tsx]].
+
+### Clarification waiting
+
+A loading pause for clarification keeps the waiting pose until the answer resumes the run or a terminal event finishes it. Covered by [[src/renderer/src/components/pet/FloatingPet.test.tsx]].

@@ -62,7 +62,14 @@ beforeEach(() => {
         ? {
             enabled: false,
             active: "",
-            pets: [{ slug: "cat", displayName: "Cat", installed: true }],
+            pets: [
+              {
+                slug: "cat",
+                displayName: "Cat",
+                installed: true,
+                generated: true,
+              },
+            ],
           }
         : { enabled: false },
     ),
@@ -98,6 +105,26 @@ it("routes a real settings dialog from the conversation and keeps mutations on i
     slug: "cat",
     profile: "work",
   });
+  fireEvent.click(screen.getByRole("button", { name: "settings.pet.rename" }));
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "settings.pet.rename" }),
+    {
+      target: { value: "Conversation cat" },
+    },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith("pet.rename", {
+      slug: "cat",
+      name: "Conversation cat",
+      profile: "work",
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("textbox", { name: "settings.pet.rename" }),
+    ).not.toBeInTheDocument(),
+  );
   fireEvent.click(screen.getByRole("button", { name: "common.cancel" }));
   await waitFor(() =>
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),

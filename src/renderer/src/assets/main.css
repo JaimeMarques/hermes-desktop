@@ -11223,6 +11223,19 @@ body:has(.shell-vibrant),
 .pet-settings-actions button:hover {
   color: var(--text-primary);
 }
+.pet-settings-rename {
+  padding: 4px;
+}
+.pet-settings-rename .settings-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
 .settings-modal-overlay {
   padding: 24px;
   /* Lighter scrim so the frosted glass reads as translucent. */

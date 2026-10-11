@@ -82,7 +82,12 @@ export default function FloatingPet({
 
   useEffect(() => {
     if (busy) {
-      setActivity((old) => ({ ...old, justCompleted: false, error: false }));
+      setActivity((old) => ({
+        ...old,
+        justCompleted: false,
+        error: false,
+        awaitingInput: false,
+      }));
       prevBusy.current = true;
       return;
     }
@@ -90,10 +95,9 @@ export default function FloatingPet({
     prevBusy.current = false;
     setActivity((old) => ({
       ...old,
-      justCompleted: true,
+      justCompleted: !old.awaitingInput && !old.error,
       toolRunning: false,
       reasoning: false,
-      awaitingInput: false,
     }));
     const timer = window.setTimeout(
       () => setActivity((old) => ({ ...old, justCompleted: false })),
@@ -259,7 +263,11 @@ export default function FloatingPet({
         detail.type === "approval.request" ||
         detail.type === "clarify.request"
       )
-        setActivity((old) => ({ ...old, awaitingInput: true }));
+        setActivity((old) => ({
+          ...old,
+          awaitingInput: true,
+          justCompleted: false,
+        }));
       if (
         detail.type === "clarify.expire" ||
         detail.type === "message.complete" ||

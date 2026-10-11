@@ -48,6 +48,99 @@ afterEach(() => {
 });
 
 describe("PetSettings", () => {
+  // @lat: [[shared-pets#Recovery regressions#Slow online gallery]]
+  it("keeps a slow online gallery request authoritative across ordinary polls", async () => {
+    let resolveOnline!: (value: unknown) => void;
+    let galleryCalls = 0;
+    request.mockImplementation(
+      (method: string, params: { localOnly?: boolean }) => {
+        if (method === "pet.gallery") {
+          galleryCalls++;
+          if (!params.localOnly)
+            return new Promise((resolve) => {
+              resolveOnline = resolve;
+            });
+          return Promise.resolve({ active: "", enabled: false, pets: [] });
+        }
+        return Promise.resolve({ enabled: false });
+      },
+    );
+    render(<PetSettings profile="work" connectionId="machine-a" />);
+    await waitFor(() => expect(galleryCalls).toBe(2));
+    vi.useFakeTimers();
+    await act(async () => {
+      vi.advanceTimersByTime(24000);
+    });
+    expect(galleryCalls).toBe(2);
+    await act(async () =>
+      resolveOnline({
+        active: "",
+        enabled: false,
+        pets: [{ slug: "online", displayName: "Online pet", installed: false }],
+      }),
+    );
+    expect(screen.getByText("Online pet")).toBeInTheDocument();
+  });
+
+  // @lat: [[shared-pets#Recovery regressions#Generated pet rename]]
+  it("renames with an in-app form and preserves the entered name after an RPC failure", async () => {
+    let name = "My cat";
+    let fail = true;
+    request.mockImplementation((method: string, params: { name?: string }) => {
+      if (method === "pet.gallery")
+        return Promise.resolve({
+          active: "",
+          enabled: false,
+          pets: [
+            {
+              slug: "cat",
+              displayName: name,
+              installed: true,
+              generated: true,
+            },
+          ],
+        });
+      if (method === "pet.rename") {
+        if (fail) return Promise.reject(new Error("Rename failed"));
+        name = params.name!;
+      }
+      return Promise.resolve({ enabled: false });
+    });
+    const prompt = vi.spyOn(window, "prompt").mockImplementation(() => {
+      throw new Error("Electron does not support prompt");
+    });
+    render(<PetSettings profile="work" connectionId="machine-a" />);
+    await screen.findByText("My cat");
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.pet.rename" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "settings.pet.rename" }),
+      {
+        target: { value: "  New cat  " },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+    expect(await screen.findByText("Rename failed")).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: "settings.pet.rename" }),
+    ).toHaveValue("  New cat  ");
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await screen.findByText("New cat");
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("textbox", { name: "settings.pet.rename" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(request).toHaveBeenCalledWith("pet.rename", {
+      profile: "work",
+      slug: "cat",
+      name: "New cat",
+    });
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
   // @lat: [[shared-pets#Connection edit regressions#Settings refresh]]
   it("clears old gallery data and reconnects when the endpoint changes under the same connection ID", async () => {
     let resolveOld!: (value: unknown) => void;

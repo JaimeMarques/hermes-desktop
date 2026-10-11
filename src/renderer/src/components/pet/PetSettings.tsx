@@ -36,6 +36,9 @@ export default function PetSettings({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [scale, setScale] = useState(0.33);
+  const [rename, setRename] = useState<{ slug: string; name: string } | null>(
+    null,
+  );
   const galleryRevision = useRef(0);
   const scopeGeneration = useRef(0);
   const thumbScope = useRef<{
@@ -57,6 +60,7 @@ export default function PetSettings({
     setThumbs({});
     setBusy(false);
     setError("");
+    setRename(null);
     const refresh = async (force = false): Promise<void> => {
       if (!socket?.connected || disposed) return;
       // Polls must not repeatedly supersede a request that is still within
@@ -65,37 +69,39 @@ export default function PetSettings({
       const currentSocket = socket;
       const currentRevision = ++galleryRevision.current;
       localReadRevision = currentRevision;
-      let installed: PetGallery;
-      let current: PetMeta;
       try {
-        [installed, current] = await Promise.all([
-          petRequest<PetGallery>(currentSocket, profile, "pet.gallery", {
-            localOnly: true,
-          }),
-          petRequest<PetMeta>(currentSocket, profile, "pet.info.meta"),
-        ]);
-      } catch (cause) {
-        if (!disposed && galleryRevision.current === currentRevision)
-          setError(cause instanceof Error ? cause.message : String(cause));
-        return;
+        let installed: PetGallery;
+        let current: PetMeta;
+        try {
+          [installed, current] = await Promise.all([
+            petRequest<PetGallery>(currentSocket, profile, "pet.gallery", {
+              localOnly: true,
+            }),
+            petRequest<PetMeta>(currentSocket, profile, "pet.info.meta"),
+          ]);
+        } catch (cause) {
+          if (!disposed && galleryRevision.current === currentRevision)
+            setError(cause instanceof Error ? cause.message : String(cause));
+          return;
+        }
+        if (disposed || galleryRevision.current !== currentRevision) return;
+        setError("");
+        setGallery(installed);
+        setMeta(current);
+        setScale(current.scale ?? 0.33);
+        try {
+          const full = await petRequest<PetGallery>(
+            currentSocket,
+            profile,
+            "pet.gallery",
+          );
+          if (!disposed && galleryRevision.current === currentRevision)
+            setGallery(full);
+        } catch {
+          // The online manifest is optional; installed pets remain usable offline.
+        }
       } finally {
         if (localReadRevision === currentRevision) localReadRevision = 0;
-      }
-      if (disposed || galleryRevision.current !== currentRevision) return;
-      setError("");
-      setGallery(installed);
-      setMeta(current);
-      setScale(current.scale ?? 0.33);
-      try {
-        const full = await petRequest<PetGallery>(
-          currentSocket,
-          profile,
-          "pet.gallery",
-        );
-        if (!disposed && galleryRevision.current === currentRevision)
-          setGallery(full);
-      } catch {
-        // The online manifest is optional; installed pets remain usable offline.
       }
     };
     const ensureSocket = async (): Promise<void> => {
@@ -240,8 +246,8 @@ export default function PetSettings({
   const mutate = async (
     method: string,
     params: Record<string, unknown> = {},
-  ): Promise<void> => {
-    if (!client || busy) return;
+  ): Promise<boolean> => {
+    if (!client || busy) return false;
     const scope = scopeGeneration.current;
     // A pre-adoption gallery response is no longer authoritative.
     galleryRevision.current++;
@@ -249,11 +255,13 @@ export default function PetSettings({
     setError("");
     try {
       await petRequest(client, profile, method, params);
-      if (scopeGeneration.current !== scope) return;
+      if (scopeGeneration.current !== scope) return false;
       await reload(client, scope);
+      return scopeGeneration.current === scope;
     } catch (cause) {
       if (scopeGeneration.current === scope)
         setError(cause instanceof Error ? cause.message : String(cause));
+      return false;
     } finally {
       if (scopeGeneration.current === scope) setBusy(false);
     }
@@ -374,16 +382,9 @@ export default function PetSettings({
                         <button
                           type="button"
                           disabled={busy}
-                          onClick={() => {
-                            const name = window
-                              .prompt(t("settings.pet.rename"), pet.displayName)
-                              ?.trim();
-                            if (name)
-                              void mutate("pet.rename", {
-                                slug: pet.slug,
-                                name,
-                              });
-                          }}
+                          onClick={() =>
+                            setRename({ slug: pet.slug, name: pet.displayName })
+                          }
                         >
                           {t("settings.pet.rename")}
                         </button>
@@ -413,6 +414,48 @@ export default function PetSettings({
                       {t("settings.pet.remove")}
                     </button>
                   </div>
+                )}
+                {rename?.slug === pet.slug && (
+                  <form
+                    className="pet-settings-rename"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const name = rename.name.trim();
+                      if (name)
+                        void mutate("pet.rename", {
+                          slug: pet.slug,
+                          name,
+                        }).then((saved) => {
+                          if (saved) setRename(null);
+                        });
+                    }}
+                  >
+                    <input
+                      className="settings-input"
+                      aria-label={t("settings.pet.rename")}
+                      value={rename.name}
+                      disabled={busy}
+                      autoFocus
+                      onChange={(event) =>
+                        setRename({ slug: pet.slug, name: event.target.value })
+                      }
+                    />
+                    <div className="pet-settings-actions">
+                      <button
+                        type="submit"
+                        disabled={busy || !rename.name.trim()}
+                      >
+                        {t("common.save")}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setRename(null)}
+                      >
+                        {t("common.cancel")}
+                      </button>
+                    </div>
+                  </form>
                 )}
               </div>
             ))}
