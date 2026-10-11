@@ -48,10 +48,11 @@ export function StatusBar({
         .listProfiles(target)
         .catch(() => []);
       if (cancelled || generation !== read || !isCurrent(target)) return;
-      const active =
-        profiles.find((p) => p.id === activeProfile) ??
-        profiles.find((p) => p.isActive);
-      if (!active) return;
+      const active = profiles.find((p) => p.id === activeProfile);
+      if (!active) {
+        setInfo(null);
+        return;
+      }
       setInfo({
         target,
         mode: target.mode,

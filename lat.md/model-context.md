@@ -46,6 +46,8 @@ An idle session-row read captures its live counter baseline at admission. Starti
 
 The last confirmed row remains available while the next turn runs or metadata is unavailable. [[src/renderer/src/screens/Layout/sessionUsage.ts#combineUsageTotals]] adds only subsequent live gains. A connection/profile/config revision excludes both old live counters and saved metadata immediately. The status bar reads model, mode and skill metadata through a captured profile-editor target, rejecting superseded poll replies. A retained tab on a nonselected connection keeps its totals but omits unavailable connection metadata; it cannot claim the selected machine's state or imply an unknown gateway is offline.
 
+Metadata requires the requested profile's own row. A missing row clears earlier metadata without falling back to another active profile or discarding the visible conversation's token totals.
+
 ### Native Dashboard usage
 
 The Agent's native `usage.input` and `usage.output` are cumulative runtime-session counters. Resume/create `info.usage` establishes the baseline before submitting a new prompt.
@@ -79,3 +81,11 @@ Session-row reads use an immutable connection snapshot and the requested profile
 ### Status metadata rejects superseded reads
 
 The status bar requests an explicit connection/profile target and rejects a delayed old read after switching scope, preserving the new model and connection mode.
+
+### Missing profile metadata stays unknown
+
+A missing requested profile cannot borrow another active profile's model or gateway state. Actual footer rendering retains that conversation's usage and omits unavailable metadata.
+
+### Current profile removal clears metadata
+
+A current successful profile poll that no longer contains the requested profile clears old model and gateway chips. Session usage remains visible while profile metadata is unavailable.

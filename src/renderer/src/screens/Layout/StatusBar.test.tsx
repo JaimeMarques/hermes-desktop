@@ -119,3 +119,78 @@ it("binds model/mode metadata to the captured connection and profile", async () 
   expect(screen.queryByText("old-model")).toBeNull();
   expect(screen.getByText("new-model")).toBeTruthy();
 });
+
+// @lat: [[model-context#Tests#Missing profile metadata stays unknown]]
+it("keeps missing-profile usage without borrowing another active profile's metadata", async () => {
+  const scope = profileEditorFixture("remote");
+  scope.change("a");
+  const listProfiles = vi.fn().mockResolvedValue([
+    {
+      id: "default",
+      isActive: true,
+      model: "other-profile-model",
+      gatewayRunning: true,
+      skillCount: 7,
+    },
+  ]);
+  Object.defineProperty(window, "hermesAPI", {
+    configurable: true,
+    value: { ...scope.api, listProfiles },
+  });
+  await act(async () => {
+    render(
+      <StatusBar activeProfile="work" connectionId="a" sessionUsage={usage} />,
+    );
+  });
+  expect(listProfiles).toHaveBeenCalledWith(
+    expect.objectContaining({ connectionId: "a", profile: "work" }),
+  );
+  expect(screen.queryByText("other-profile-model")).toBeNull();
+  expect(screen.queryByText("gateway")).toBeNull();
+  expect(screen.queryByText("offline")).toBeNull();
+  expect(screen.getByText("ctx 38.2k/200k · 19% · ↑120k ↓8.4k")).toBeTruthy();
+});
+
+// @lat: [[model-context#Tests#Current profile removal clears metadata]]
+it("clears prior metadata when a current poll no longer finds the requested profile", async () => {
+  const scope = profileEditorFixture("remote");
+  scope.change("a");
+  const listProfiles = vi
+    .fn()
+    .mockResolvedValueOnce([
+      {
+        id: "work",
+        isActive: true,
+        model: "removed-profile-model",
+        gatewayRunning: true,
+        skillCount: 7,
+      },
+    ])
+    .mockResolvedValue([]);
+  Object.defineProperty(window, "hermesAPI", {
+    configurable: true,
+    value: { ...scope.api, listProfiles },
+  });
+  let poll: (() => void) | undefined;
+  const interval = vi
+    .spyOn(window, "setInterval")
+    .mockImplementation((handler) => {
+      if (typeof handler === "function") poll = () => handler();
+      return 1;
+    });
+  try {
+    render(
+      <StatusBar activeProfile="work" connectionId="a" sessionUsage={usage} />,
+    );
+    await screen.findByText("removed-profile-model");
+    expect(poll).toBeDefined();
+    await act(async () => poll?.());
+    expect(listProfiles).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("removed-profile-model")).toBeNull();
+    expect(screen.queryByText("gateway")).toBeNull();
+    expect(screen.queryByText("offline")).toBeNull();
+    expect(screen.getByText("ctx 38.2k/200k · 19% · ↑120k ↓8.4k")).toBeTruthy();
+  } finally {
+    interval.mockRestore();
+  }
+});
