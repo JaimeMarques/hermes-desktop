@@ -1,10 +1,23 @@
 import Database from "better-sqlite3";
-import { existsSync } from "fs";
+import { statSync } from "fs";
 import { activeStateDbPath } from "./utils";
 
 let cachedDb: Database.Database | null = null;
 let cachedDbPath: string | null = null;
 let cachedDbReadonly: boolean | null = null;
+let cachedDbIdentity: string | null = null;
+
+/** A file generation changes on replacement, unlike normal SQLite writes. */
+export function stateDbFileIdentity(dbPath: string): string | null {
+  try {
+    const stats = statSync(dbPath, { bigint: true });
+    return stats.isFile()
+      ? `${stats.dev}:${stats.ino}:${stats.birthtimeNs}`
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Older Agent databases predate native archiving; keep their lists readable. */
 export function sessionVisibilityPredicate(db: Database.Database): string {
@@ -26,13 +39,19 @@ export function getDbConnection(
   profile?: unknown,
 ): Database.Database | null {
   const dbPath = activeStateDbPath(profile);
-  if (!existsSync(dbPath)) {
+  const identity = stateDbFileIdentity(dbPath);
+  if (!identity) {
     closeDbConnection();
     return null;
   }
 
   // Reuse the existing cached connection if the path and mode match
-  if (cachedDb && cachedDbPath === dbPath && cachedDbReadonly === readonly) {
+  if (
+    cachedDb &&
+    cachedDbPath === dbPath &&
+    cachedDbReadonly === readonly &&
+    cachedDbIdentity === identity
+  ) {
     return cachedDb;
   }
 
@@ -42,6 +61,7 @@ export function getDbConnection(
     cachedDb = new Database(dbPath, readonly ? { readonly: true } : {});
     cachedDbPath = dbPath;
     cachedDbReadonly = readonly;
+    cachedDbIdentity = identity;
     return cachedDb;
   } catch (err) {
     console.error(`[db] Failed to open database at ${dbPath}:`, err);
@@ -62,5 +82,6 @@ export function closeDbConnection(): void {
     cachedDb = null;
     cachedDbPath = null;
     cachedDbReadonly = null;
+    cachedDbIdentity = null;
   }
 }

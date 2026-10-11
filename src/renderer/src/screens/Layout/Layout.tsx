@@ -31,6 +31,7 @@ import Tools from "../Tools/Tools";
 import Gateway from "../Gateway/Gateway";
 import Office from "../Office/Office";
 import Providers from "../Providers/Providers";
+import RemoteProviders from "../Providers/RemoteProviders";
 import Schedules from "../Schedules/Schedules";
 import Kanban from "../Kanban/Kanban";
 import RemoteNotice from "../../components/RemoteNotice";
@@ -975,9 +976,13 @@ function Layout({
           {visitedViews.has("providers") && (
             <div style={paneStyle("providers")}>
               {remoteMode ? (
-                <RemoteNotice feature="Providers" />
+                <RemoteProviders
+                  connectionId={connectionId}
+                  profile={activeProfile}
+                />
               ) : (
                 <Providers
+                  key={JSON.stringify([connectionId, activeProfile])}
                   profile={activeProfile}
                   visible={view === "providers"}
                 />
@@ -999,11 +1004,11 @@ function Layout({
 
           {visitedViews.has("memory") && (
             <div style={paneStyle("memory")}>
-              {remoteMode ? (
-                <RemoteNotice feature="Memory" />
-              ) : (
-                <Memory profile={activeProfile} />
-              )}
+              <Memory
+                key={connectionId}
+                profile={activeProfile}
+                readOnly={remoteMode}
+              />
             </div>
           )}
 
