@@ -4,6 +4,10 @@ import type { ConnectionConfig } from "./config";
 const request = vi.hoisted(() => vi.fn());
 vi.mock("./remote-api", () => ({ remoteDashboardRequestJson: request }));
 
+import {
+  beginProviderAuthChange,
+  finishProviderAuthChange,
+} from "./provider-request-target";
 import { remoteGetSessionUsage } from "./remote-session-usage";
 
 const conn = { mode: "remote", remoteUrl: "http://r:9119" } as ConnectionConfig;
@@ -57,4 +61,32 @@ describe("remoteGetSessionUsage", () => {
     expect(await remoteGetSessionUsage(conn, "")).toBeNull();
     expect(request).not.toHaveBeenCalled();
   });
+});
+
+// @lat: [[model-context#Tests#Usage metadata keeps account ownership]]
+it("captures the request target and discards a reply after its account revision changes", async () => {
+  const selected = {
+    ...conn,
+    remoteUrl: "https://usage-owner.test",
+    remoteToken: "first",
+  };
+  let resolve!: (row: Record<string, unknown>) => void;
+  request.mockImplementation(
+    () =>
+      new Promise<Record<string, unknown>>((done) => {
+        resolve = done;
+      }),
+  );
+  const pending = remoteGetSessionUsage(selected, "owned-session", "work");
+  const captured = request.mock.calls.at(-1)?.[0];
+  selected.remoteUrl = "https://other.test";
+  selected.remoteToken = "second";
+  expect(captured).toMatchObject({
+    remoteUrl: "https://usage-owner.test",
+    remoteToken: "first",
+  });
+  beginProviderAuthChange("https://usage-owner.test");
+  finishProviderAuthChange("https://usage-owner.test");
+  resolve({ input_tokens: 99, output_tokens: 9 });
+  expect(await pending).toBeNull();
 });

@@ -128,8 +128,8 @@ describe("combineUsageTotals", () => {
   };
   const zero = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 
-  it("adds only what the live counters gained after the saved totals arrived", () => {
-    // A live turn of 300/50 happened after the answer: on top of the record.
+  it("adds only what the live counters gained after the confirmed idle snapshot", () => {
+    // A live turn of 300/50 happened after the confirmed idle record.
     const total = combineUsageTotals(
       saved,
       { ...zero },
@@ -143,9 +143,9 @@ describe("combineUsageTotals", () => {
     expect(total.cost).toBeCloseTo(0.12, 10);
   });
 
-  it("does not count a turn twice when the live reply finished BEFORE the saved totals arrived", () => {
-    // The live counters already held 300/50 when the record came back, so that
-    // turn is in the record: it must be neither dropped nor added again.
+  it("does not count usage already included in the confirmed idle snapshot twice", () => {
+    // The idle snapshot was admitted after the live counters reached 300/50.
+    // Its confirmed baseline excludes that usage from subsequent additions.
     const live = { promptTokens: 300, completionTokens: 50, totalTokens: 350 };
     expect(combineUsageTotals(saved, live, live)).toMatchObject({
       promptTokens: 1000,

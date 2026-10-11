@@ -16,7 +16,10 @@ import {
   resetSubagents,
   type SubagentControls,
 } from "../subagents";
-import { useDashboardChatTransport } from "./useDashboardChatTransport";
+import {
+  dashboardUsageDelta,
+  useDashboardChatTransport,
+} from "./useDashboardChatTransport";
 import { useTranscriptState } from "./useTranscriptState";
 import type { ActiveTurn, ChatMessage, UsageState } from "../types";
 
@@ -2081,4 +2084,67 @@ describe("useDashboardChatTransport subagent roster", () => {
       getSubagents(subagentScopeKey(undefined, undefined, "stored-sub")),
     ).toEqual([]);
   });
+});
+
+// @lat: [[model-context#Tests#Native cumulative counters and legacy deltas]]
+it("deduplicates native runtime counters while preserving context, legacy deltas and reset boundaries", () => {
+  const snapshots = new Map<string, Partial<UsageState>>();
+  const first = dashboardUsageDelta(
+    { usage: { input: 100, output: 20, total: 120, context_used: 80 } },
+    "runtime-a",
+    snapshots,
+  );
+  expect(first).toMatchObject({
+    promptTokens: 100,
+    completionTokens: 20,
+    totalTokens: 120,
+    contextTokens: 80,
+  });
+  expect(
+    dashboardUsageDelta(
+      { usage: { input: 150, output: 30, total: 180, context_used: 110 } },
+      "runtime-a",
+      snapshots,
+    ),
+  ).toMatchObject({
+    promptTokens: 50,
+    completionTokens: 10,
+    totalTokens: 60,
+    contextTokens: 110,
+  });
+  expect(
+    dashboardUsageDelta(
+      { usage: { input: 150, output: 30, total: 180 } },
+      "runtime-a",
+      snapshots,
+    ),
+  ).toMatchObject({ promptTokens: 0, completionTokens: 0, totalTokens: 0 });
+  expect(
+    dashboardUsageDelta(
+      { usage: { input: 5, output: 2, total: 7 } },
+      "runtime-a",
+      snapshots,
+    ),
+  ).toMatchObject({ promptTokens: 5, completionTokens: 2, totalTokens: 7 });
+  expect(
+    dashboardUsageDelta(
+      { usage: { input: 5, output: 2, total: 7 } },
+      "runtime-b",
+      snapshots,
+    ),
+  ).toMatchObject({ promptTokens: 5, completionTokens: 2, totalTokens: 7 });
+  expect(
+    dashboardUsageDelta(
+      { usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 } },
+      "runtime-a",
+      snapshots,
+    ),
+  ).toMatchObject({ promptTokens: 8, completionTokens: 4, totalTokens: 12 });
+  expect(
+    dashboardUsageDelta(
+      { usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 } },
+      "runtime-a",
+      snapshots,
+    ),
+  ).toMatchObject({ promptTokens: 8, completionTokens: 4, totalTokens: 12 });
 });

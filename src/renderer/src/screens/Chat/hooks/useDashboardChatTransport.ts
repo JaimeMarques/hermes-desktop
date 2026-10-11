@@ -219,7 +219,7 @@ export function isDashboardSlashWorkerExitError(err: unknown): boolean {
 export async function submitDashboardPromptWithRecovery(
   client: DashboardPromptClient,
   params: {
-    onRecoveredSessionId?: (sessionId: string) => void;
+    onRecoveredSessionId?: (sessionId: string, info?: unknown) => void;
     canRecover?: () => boolean;
     sessionId: string;
     storedSessionId?: string | null;
@@ -260,7 +260,7 @@ export async function submitDashboardPromptWithRecovery(
       throw err;
     }
 
-    params.onRecoveredSessionId?.(recoveredSessionId);
+    params.onRecoveredSessionId?.(recoveredSessionId, resumed.info);
     await client.request("prompt.submit", {
       session_id: recoveredSessionId,
       text: params.text,
@@ -748,6 +748,31 @@ export function usageFromPayload(payload: unknown): Partial<UsageState> | null {
   };
 }
 
+function cumulativeUsagePayload(payload: unknown): boolean {
+  const record = asRecord(asRecord(payload).usage);
+  return "input" in record || "output" in record;
+}
+
+/** Native Hermes counters are runtime-session snapshots; OpenAI counts are turn deltas. */
+export function dashboardUsageDelta(
+  payload: unknown,
+  sessionId: string,
+  snapshots: Map<string, Partial<UsageState>>,
+): Partial<UsageState> | null {
+  const usage = usageFromPayload(payload);
+  if (!usage || !cumulativeUsagePayload(payload)) return usage;
+  const previous = snapshots.get(sessionId);
+  snapshots.set(sessionId, usage);
+  const delta = (current = 0, before = 0): number =>
+    current >= before ? current - before : current;
+  return {
+    ...usage,
+    promptTokens: delta(usage.promptTokens, previous?.promptTokens),
+    completionTokens: delta(usage.completionTokens, previous?.completionTokens),
+    totalTokens: delta(usage.totalTokens, previous?.totalTokens),
+  };
+}
+
 function messageChars(message: ChatMessage): number {
   if ("content" in message) return message.content?.length ?? 0;
   switch (message.kind) {
@@ -1003,6 +1028,7 @@ export function useDashboardChatTransport({
   // immediately. Reset on connection change (see the effect below).
   const dashboardUnavailableRef = useRef(false);
   const runtimeSessionIdRef = useRef<string | null>(null);
+  const cumulativeUsageRef = useRef(new Map<string, Partial<UsageState>>());
   const storedSessionIdRef = useRef<string | null>(hermesSessionId);
   const conversationGenerationRef = useRef(0);
   const subagentResumeRef = useRef<{
@@ -1179,6 +1205,7 @@ export function useDashboardChatTransport({
 
   useEffect(() => {
     clientGenerationRef.current += 1;
+    cumulativeUsageRef.current.clear();
     subagentResumeRef.current = null;
     dashboardUnavailableRef.current = false;
     expirePendingApprovalsRef.current(true);
@@ -1405,7 +1432,11 @@ export function useDashboardChatTransport({
         activeTurnRef.current = null;
         setToolProgress(null);
         setIsLoading(false);
-        const usage = usageFromPayload(event.payload);
+        const usage = dashboardUsageDelta(
+          event.payload,
+          runtimeSessionId || event.session_id || "pending",
+          cumulativeUsageRef.current,
+        );
         if (usage || !failed) {
           // The gauge only renders when `contextTokens` is set, so it must be
           // populated even when the provider omits usage — entirely
@@ -1660,6 +1691,13 @@ export function useDashboardChatTransport({
         }
 
         targetSessionId = response.runtimeSessionId;
+        // A resumed live runtime may already have counters. Its response is
+        // captured before this prompt; do not count those historical tokens again.
+        if (cumulativeUsagePayload(response.info))
+          cumulativeUsageRef.current.set(
+            targetSessionId,
+            usageFromPayload(response.info) || {},
+          );
         runtimeSessionIdRef.current = targetSessionId;
         lastRuntimeSessionWasCreatedRef.current = response.created;
         justCreated = response.created;
@@ -2083,8 +2121,13 @@ export function useDashboardChatTransport({
           storedSessionId: storedSessionIdRef.current,
           text: submitText,
           profile,
-          onRecoveredSessionId: (recoveredSessionId) => {
+          onRecoveredSessionId: (recoveredSessionId, info) => {
             runtimeSessionIdRef.current = recoveredSessionId;
+            if (cumulativeUsagePayload(info))
+              cumulativeUsageRef.current.set(
+                recoveredSessionId,
+                usageFromPayload(info) || {},
+              );
           },
         });
         return true;

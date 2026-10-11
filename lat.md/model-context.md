@@ -36,6 +36,42 @@ A failed turn with no usage record does not fabricate an estimate — nothing ne
 
 ## Status bar session usage
 
-The bottom status bar shows the visible chat's context fill and token totals, so usage stays visible without hovering the gauge. See [[src/renderer/src/screens/Layout/sessionUsage.ts#formatSessionUsage]].
+The bottom status bar shows the visible chat's context fill and token totals, scoped to its connection, profile and conversation. See [[src/renderer/src/screens/Layout/sessionUsage.ts#formatSessionUsage]].
 
 [[src/renderer/src/screens/Chat/Chat.tsx]] reports usage upward per run (like loading and title), the shell keeps it on the run, and the bar shows it only on the chat tab. The chip turns to a warning at 80% of the window, using the unrounded ratio.
+
+### Saved and live totals
+
+An idle session-row read captures its live counter baseline at admission. Starting or completing a turn invalidates pending reads; a late response cannot prove which turn the row included.
+
+The last confirmed row remains available while the next turn runs or metadata is unavailable. [[src/renderer/src/screens/Layout/sessionUsage.ts#combineUsageTotals]] adds only subsequent live gains. A connection/profile/config revision excludes both old live counters and saved metadata immediately. The status bar reads its model, mode and skill metadata through the same captured profile-editor target as the shell, rejecting superseded poll replies.
+
+### Native Dashboard usage
+
+The Agent's native `usage.input` and `usage.output` are cumulative runtime-session counters. Resume/create `info.usage` establishes the baseline before submitting a new prompt.
+
+[[src/renderer/src/screens/Chat/hooks/useDashboardChatTransport.ts#dashboardUsageDelta]] converts native snapshots to increments per runtime session, ignores duplicate snapshots and accepts a lowered counter as a new counter generation. Legacy OpenAI `prompt_tokens`/`completion_tokens` payloads remain turn increments. Context occupancy stays the latest exact snapshot, independent of token-total arithmetic. Account revisions also fence [[src/main/remote-session-usage.ts#remoteGetSessionUsage]] replies.
+
+## Tests
+
+Actual chat, shell and status-bar regressions verify saved totals, native Agent counters and scoped metadata without changing the Agent API.
+
+### Saved totals and delayed completed turns
+
+A resumed conversation's metadata reply may arrive after completion. The real Chat→Layout→StatusBar path retains saved totals, refreshes the confirmed row and adds the next native cumulative turn once, even if later metadata fails.
+
+### Saved totals follow the visible scope
+
+Same-ID configuration changes discard pending saved metadata. Switching connections or profiles displays only the visible run's totals, including resuming the same session ID on another connection.
+
+### Native cumulative counters and legacy deltas
+
+Native usage snapshots produce per-runtime increments, deduplicate repeats and accept reset counters. Context stays exact and legacy OpenAI turn deltas retain their additive behavior.
+
+### Usage metadata keeps account ownership
+
+Session-row reads use an immutable connection snapshot and the requested profile. An OAuth account revision during the read rejects its late result rather than showing another account's totals.
+
+### Status metadata rejects superseded reads
+
+The status bar requests an explicit connection/profile target and rejects a delayed old read after switching scope, preserving the new model and connection mode.

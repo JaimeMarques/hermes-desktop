@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { formatSessionUsage, type SessionUsage } from "./sessionUsage";
+import { useProfileEditorTarget } from "../../hooks/useProfileEditorTarget";
 
 interface StatusInfo {
   mode: string;
@@ -17,33 +18,42 @@ interface StatusInfo {
  */
 export function StatusBar({
   activeProfile,
+  connectionId,
   sessionUsage = null,
 }: {
   activeProfile: string;
+  connectionId?: string;
   /** Token usage of the visible chat session; omitted when not on the chat tab. */
   sessionUsage?: SessionUsage | null;
 }): React.JSX.Element {
   const [info, setInfo] = useState<StatusInfo | null>(null);
+  const { target, isCurrent, revision } = useProfileEditorTarget(
+    activeProfile,
+    connectionId,
+  );
 
   useEffect(() => {
     let cancelled = false;
-    async function load(): Promise<void> {
-      const [profiles, conn] = await Promise.all([
-        window.hermesAPI.listProfiles().catch(() => []),
-        window.hermesAPI.getConnectionConfig().catch(() => null),
-      ]);
-      if (cancelled) return;
+    let read = 0;
+    setInfo(null);
+    if (!target) return;
+    const load = async (): Promise<void> => {
+      const generation = ++read;
+      const profiles = await window.hermesAPI
+        .listProfiles(target)
+        .catch(() => []);
+      if (cancelled || generation !== read || !isCurrent(target)) return;
       const active =
         profiles.find((p) => p.id === activeProfile) ??
         profiles.find((p) => p.isActive);
-      if (!active && !conn) return; // keep last-known on a transient failure
+      if (!active) return;
       setInfo({
-        mode: conn?.mode ?? "local",
+        mode: target.mode,
         gatewayRunning: active?.gatewayRunning ?? false,
         model: active?.model ?? "",
         skillCount: active?.skillCount ?? 0,
       });
-    }
+    };
     void load();
     // Gateway state + skill count change while the app is open; poll gently.
     const id = window.setInterval(() => void load(), 4000);
@@ -51,7 +61,7 @@ export function StatusBar({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [activeProfile]);
+  }, [activeProfile, target, isCurrent, revision]);
 
   const isMac = window.electron?.process?.platform === "darwin";
   const mod = isMac ? "⌘" : "Ctrl";
@@ -70,7 +80,7 @@ export function StatusBar({
         <span className="status-sep" aria-hidden="true">
           &middot;
         </span>
-        <span className="status-item">{info?.mode ?? "local"}</span>
+        {info && <span className="status-item">{info.mode}</span>}
         {info?.model ? (
           <>
             <span className="status-sep" aria-hidden="true">

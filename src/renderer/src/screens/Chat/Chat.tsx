@@ -1010,6 +1010,18 @@ function Chat({
     [eventHasFiles],
   );
 
+  const usageScope = JSON.stringify([
+    connectionId,
+    profile,
+    connectionRevision,
+  ]);
+  const liveUsageScope = useRef(usageScope);
+  const scopedUsage = liveUsageScope.current === usageScope ? usage : null;
+  useEffect(() => {
+    liveUsageScope.current = usageScope;
+    setUsage(null);
+  }, [usageScope]);
+
   // Context-gauge data: the latest turn's prompt tokens vs the model's window.
   // Denominator priority: gateway-reported context_max (authoritative — knows
   // the actual model config) > provider /models catalogue > static heuristic.
@@ -1017,24 +1029,24 @@ function Chat({
   // history, or one still on its first turn) fall back to a transcript
   // estimate so the occupancy is visible straight away.
   const estimatedContext = useMemo(
-    () => (usage?.contextTokens ? 0 : estimateTranscriptTokens(messages)),
-    [usage?.contextTokens, messages],
+    () => (scopedUsage?.contextTokens ? 0 : estimateTranscriptTokens(messages)),
+    [scopedUsage?.contextTokens, messages],
   );
   const contextWindow =
-    usage?.contextWindowTokens ??
+    scopedUsage?.contextWindowTokens ??
     realContextWindow ??
     contextWindowForModel(chatCurrentModel);
   // The count is a guess when nothing live reported it, and also when the turn
-  // that set it fell back to the transcript estimate (usage.contextEstimated).
-  const contextEstimated = usage?.contextTokens
-    ? Boolean(usage.contextEstimated)
+  // that set it fell back to the transcript estimate (scopedUsage.contextEstimated).
+  const contextEstimated = scopedUsage?.contextTokens
+    ? Boolean(scopedUsage.contextEstimated)
     : estimatedContext > 0;
-  const contextUsage: ContextUsage | null = usage?.contextTokens
+  const contextUsage: ContextUsage | null = scopedUsage?.contextTokens
     ? {
-        used: usage.contextTokens,
+        used: scopedUsage.contextTokens,
         window: contextWindow,
-        cacheReadTokens: usage.cacheReadTokens,
-        cacheWriteTokens: usage.cacheWriteTokens,
+        cacheReadTokens: scopedUsage.cacheReadTokens,
+        cacheWriteTokens: scopedUsage.cacheWriteTokens,
         estimated: contextEstimated,
       }
     : estimatedContext > 0
@@ -1046,35 +1058,38 @@ function Chat({
   // the live additions and combined below: seeding `usage` itself would be
   // skipped whenever a live reply happened to finish first.
   //
-  // `liveBase` is the live total at the moment the reply arrived. Anything the
-  // live counters held by then is assumed to be in the server's record already
-  // (a finished turn is persisted before it completes), so only what is added
-  // AFTER that point is counted on top: no turn is counted twice.
+  // Read while the turn is idle and capture the live baseline at admission.
+  // A completion invalidates an in-flight read and starts a fresh snapshot;
+  // response arrival alone says nothing about which turns its row includes.
   const [savedUsage, setSavedUsage] = useState<{
+    owner: string;
     totals: NonNullable<
       Awaited<ReturnType<typeof window.hermesAPI.getSessionUsage>>
     >;
     liveBase: UsageCounters;
   } | null>(null);
-  const liveUsageRef = useRef(usage);
-  liveUsageRef.current = usage;
+  const usageOwner = JSON.stringify([usageScope, hermesSessionId]);
+  const livePrompt = scopedUsage?.promptTokens ?? 0;
+  const liveCompletion = scopedUsage?.completionTokens ?? 0;
+  const liveTotal = scopedUsage?.totalTokens ?? 0;
+  const liveCost = scopedUsage?.cost;
   useEffect(() => {
-    setSavedUsage(null);
-    if (!hermesSessionId) return;
+    if (!hermesSessionId || isLoading) return;
     let cancelled = false;
+    const liveBase: UsageCounters = {
+      promptTokens: livePrompt,
+      completionTokens: liveCompletion,
+      totalTokens: liveTotal,
+      cost: liveCost,
+    };
     window.hermesAPI
       .getSessionUsage(hermesSessionId, connectionId, profile)
       .then((totals) => {
         if (cancelled || !totals) return;
-        const live = liveUsageRef.current;
         setSavedUsage({
+          owner: usageOwner,
           totals,
-          liveBase: {
-            promptTokens: live?.promptTokens ?? 0,
-            completionTokens: live?.completionTokens ?? 0,
-            totalTokens: live?.totalTokens ?? 0,
-            cost: live?.cost,
-          },
+          liveBase,
         });
       })
       .catch(() => {
@@ -1083,26 +1098,39 @@ function Chat({
     return () => {
       cancelled = true;
     };
-  }, [hermesSessionId, connectionId, profile]);
+  }, [
+    hermesSessionId,
+    connectionId,
+    profile,
+    connectionRevision,
+    usageOwner,
+    livePrompt,
+    liveCompletion,
+    liveTotal,
+    liveCost,
+    isLoading,
+  ]);
 
   // Surface usage upward for the status bar. Depend on primitives (not the
   // freshly-built contextUsage object) so this only fires when a number moves.
+  const scopedSavedUsage = savedUsage?.owner === usageOwner ? savedUsage : null;
   const combined = combineUsageTotals(
-    savedUsage?.totals,
-    savedUsage?.liveBase,
-    usage,
+    scopedSavedUsage?.totals,
+    scopedSavedUsage?.liveBase,
+    scopedUsage,
   );
   const usagePrompt = combined.promptTokens;
   const usageCompletion = combined.completionTokens;
   const usageTotal = combined.totalTokens;
   const usageCost = combined.cost;
-  const saved = savedUsage?.totals;
-  const usageCacheRead = usage?.cacheReadTokens ?? saved?.cacheReadTokens;
-  const usageCacheWrite = usage?.cacheWriteTokens ?? saved?.cacheWriteTokens;
+  const saved = scopedSavedUsage?.totals;
+  const usageCacheRead = scopedUsage?.cacheReadTokens ?? saved?.cacheReadTokens;
+  const usageCacheWrite =
+    scopedUsage?.cacheWriteTokens ?? saved?.cacheWriteTokens;
   const usageContext = contextUsage?.used ?? 0;
   const usageWindow = contextUsage?.window ?? 0;
   const hasUsage =
-    usage !== null || savedUsage !== null || contextUsage !== null;
+    scopedUsage !== null || scopedSavedUsage !== null || contextUsage !== null;
   useEffect(() => {
     if (!onUsageChange) return;
     if (!hasUsage) {

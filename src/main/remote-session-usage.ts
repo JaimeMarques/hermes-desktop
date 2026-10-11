@@ -1,5 +1,6 @@
 import type { ConnectionConfig } from "./config";
 import { remoteDashboardRequestJson } from "./remote-api";
+import { providerTargetRevision } from "./provider-request-target";
 
 // Token and cost totals a Hermes server has accumulated for one session
 // (GET /api/sessions/{id}). A chat opened from history has no live usage
@@ -28,12 +29,15 @@ export async function remoteGetSessionUsage(
 ): Promise<SessionUsageTotals | null> {
   if (!sessionId) return null;
   try {
+    const captured = structuredClone(conn);
+    const revision = providerTargetRevision(captured);
     const row = await remoteDashboardRequestJson<Record<string, unknown>>(
-      conn,
+      captured,
       `/api/sessions/${encodeURIComponent(sessionId)}`,
       {},
       profile,
     );
+    if (providerTargetRevision(captured) !== revision) return null;
     const promptTokens = count(row?.input_tokens);
     const completionTokens = count(row?.output_tokens);
     if (promptTokens === 0 && completionTokens === 0) return null;

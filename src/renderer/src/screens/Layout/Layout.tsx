@@ -1052,6 +1052,7 @@ function Layout({
         </main>
       </div>
       <StatusBar
+        connectionId={connectionId}
         activeProfile={activeProfile}
         sessionUsage={
           view === "chat"

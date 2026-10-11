@@ -141,11 +141,10 @@ export interface UsageCounters {
 }
 
 /**
- * Session totals = what the server had recorded when it answered, plus what the
- * live counters gained AFTER that moment. `liveBase` is the live counters at the
- * moment the answer arrived: whatever they held then is assumed to be in the
- * server's record already, so subtracting it avoids counting a turn twice, and
- * a turn that finished before the answer arrived is not dropped either.
+ * Session totals = a confirmed idle server snapshot plus subsequent live gains.
+ * `liveBase` is captured when that read begins. The caller cancels reads that
+ * overlap a turn and refreshes after completion, so arrival time is never used
+ * to guess which finished turns an earlier server snapshot included.
  */
 export function combineUsageTotals(
   saved: UsageCounters | null | undefined,
